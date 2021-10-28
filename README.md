@@ -14,13 +14,14 @@ After Docker is installed, this can be done by executing the command `docker pul
 
 ## Data Preparation
 
-Reference genome and files to be processed should be listed in their appropriate sections within `workflow/config.yaml`.
+Reference genome and files to be processed should be listed in their appropriate sections within `config.yaml`.
 
-Input file paths can be configured in `config.yaml`
-* Reference genome -> `data/ref`
-* Raw FASTQ files -> `data/fastq` (files should be compressed, ending with `.fq.gz`)
+Input file paths can be configured in `config.yaml` for:
+* Reference genome
+* Raw FASTQ files
+FASTQ files should be gzipped and ending with `.fastq.gz`.
 
 
 ## Running
 
-This data analysis pipeline can be run using the `snakemake` command followed by the file to be generated. For example, `snakemake vcf/specimen.vcf` would generate the VCF file for the dataset "specimen".
+This data analysis pipeline can be run using the `snakemake` command followed by the file to be generated. For example, `snakemake ../vcf/specimen.vcf` would generate the VCF file from the dataset "specimen".

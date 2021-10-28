@@ -1,0 +1,4 @@
+.DS_Store
+.snakemake
+extra_code.sh
+run_snakemake.sh

@@ -1,25 +1,15 @@
 ---
-  # Reference genome, which should be placed in this same directory
-  # Name is just for user understanding.
-  ref: ../data/ref/Mmul_10.fasta
 
-  # If reference genome isn't downloaded, change to appropriate address to download
-  ref_address: ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Macaca_mulatta/latest_assembly_versions/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_genomic.fna.gz
-  
-  # Paired-end FASTA files to be processed (without extension)
-  datasets:
-    - test
-    - test2
+# Reference genome, which should be placed in this same directory
+# Name is just for user understanding.
+ref: ../macaque/ref/Mmul_10.fna.gz
+#ref: /data/RHESUS/ref/Mmul_10.fasta
 
-  dataset_path: ../input/fastq
+# If reference genome isn't downloaded, change to appropriate address to download
+ref_address: ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Macaca_mulatta/latest_assembly_versions/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_genomic.fna.gz
 
-  # Path to search for input files
-  datasets_paths: # WES and WGS are formatted as sample_2.fq.gz
-    - /data/RHESUS/FASTQ/WES/WES_2020_raw_data
-    - /data/RHESUS/FASTQ/WES/WES_April_2021_raw_data
-    - /data/RHESUS/FASTQ/WGS/WGS_2020_raw_data
-    - /data/RHESUS/FASTQ/WGS/WGS_April_2021_raw_data
-    #- /data/RHESUS/FASTQ/GBS # GBS is formatted as sample.R2.fastq.gz
+# Full path to FASTQ data
+dataset_path: /data/RHESUS/FASTQ/WES/combined/
 
-  # Path to deposit output files
-  output_path: ../data
+# Path to deposit output files
+output_path: ../macaque
