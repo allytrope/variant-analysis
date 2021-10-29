@@ -2,26 +2,25 @@
 
 ## Dependencies
 
-To use all available tools, the following need to be installed and accessible through $PATH:
-* snakemake
-* fastp
-* bwa
-* docker
-
-Also install the official GATK image through Docker.
-After Docker is installed, this can be done by executing the command `docker pull broadinstitue/gatk`.
+To use all available tools, the following needs to be installed and accessible through $PATH:
+* `bwa`
+* `conda`
+* `gatk`
+* `snakemake`
 
 
 ## Data Preparation
 
-Reference genome and files to be processed should be listed in their appropriate sections within `config.yaml`.
+The path and filename of the reference genome should be listed in the appropriate section within `config.yaml`. Similarly, include the path to the input FASTQ files.
 
 Input file paths can be configured in `config.yaml` for:
 * Reference genome
 * Raw FASTQ files
-FASTQ files should be gzipped and ending with `.fastq.gz`.
+
+Similarly, the output directory can also be specified for the final files and any intermediates.
+FASTQ files should also be gzipped and ending with `.fastq.gz`.
 
 
 ## Running
 
-This data analysis pipeline can be run using the `snakemake` command followed by the file to be generated. For example, `snakemake ../vcf/specimen.vcf` would generate the VCF file from the dataset "specimen".
+This data analysis pipeline can be run using the `snakemake --use-conda` command followed by the file to be generated. For example, `snakemake ../vcf/specimen.vcf` would generate the VCF file from the dataset "specimen".

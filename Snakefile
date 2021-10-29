@@ -2,7 +2,7 @@
 configfile: "config.yaml"
 
 rule all:
-    input: config["ref"] + ".amb"
+    #input: config["output_path"] + "/bam/WES16340.bam"
 
 # Prepare reference genome
 rule download_ref:
@@ -28,12 +28,12 @@ rule align:
             samtools view -Sb - > {output}"
 
 # Post-alignment cleanup
-rule mark_duplicates:
+rule remove_duplicates:
     """Mark duplicates with decimal value 1024."""
-    input: "bam/{dataset}.bam"
+    input: "{config[output_path]}/bam/{dataset}.bam"
     output: mdup="{config[output_path]}/removed_duplicates_bam/{dataset}.bam",
-            metrics="removed_duplicates_bam/{dataset}.metrics.txt"
-    container: "docker://broadinstitute/gatk"
+            metrics="{config[output_path]}/removed_duplicates_bam/{dataset}.metrics.txt"
+    conda: "envs/gatk.yaml"
     shell: "gatk MarkDuplicateSpark \
                 -I {input} \
                 -O {output.mdup} \
@@ -43,9 +43,9 @@ rule mark_duplicates:
 # Variant calling
 rule call_variants:
     """Call variants to make VCF file."""
-    input: ref=config["ref"], bam="removed_duplicates_bam/{dataset}.bam"
+    input: ref=config["ref"], bam="{config[output_path]}/removed_duplicates_bam/{dataset}.bam"
     output: "{config[output_path]}/vcf/{dataset}.g.vcf"
-    container: "docker://broadinstitute/gatk"
+    conda: "envs/gatk.yaml"
     shell: 'gatk --java-options "-Xmx4g" HaplotypeCaller \
                 -R {input.ref} \
                 -I {input.bam} \
@@ -57,7 +57,7 @@ DATASETS = [dataset for dataset in shell("find {config[dataset_path]} -type f -n
 
 rule create_sample_map:
     """Create sample map that contains names and paths to all VCFs to be used in consolidate rule."""
-    input: expand("{config[output_path]}/{dataset}.g.vcf", dataset=DATASETS)
+    input: expand("{output_path}/{dataset}.g.vcf", output_path=config["output_path"], dataset=DATASETS)
     output: "{config[output_path]}/cohort.sample_map"
     run:
         import os
@@ -71,9 +71,9 @@ rule create_sample_map:
 # Consolidation of GVCFs
 rule consolidate:
     """Combines GVCFs into GenomicsDB (a datastore)."""
-    input: expand("{dataset}.g.vcf", dataset=DATASETS), "cohort.sample_map"
+    input: expand("{output_path}/{dataset}.g.vcf", output_path=config["output_path"], dataset=DATASETS), "{config[output_path]}/cohort.sample_map"
     output: "{config[output_path]}/db/genomicsdb"
-    container: "docker://broadinstitute/gatk"
+    conda: "envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx4g -Xms4g' GenomicsDBImport \
                 --sample-name-map cohort.sample_map \
                 --genomicsdb-workspace-path db \
@@ -81,9 +81,9 @@ rule consolidate:
 
 rule joint_call_cohort:
     """Use GenomicsDB to jointly call a VCF file."""
-    input: ref=config["ref"], db="db"
+    input: ref=config["ref"], db="{config[output_path]}/db"
     output: "{config[output_path]}/joint-call.vcf.gz"
-    container: "docker://broadinstitute/gatk"
+    conda: "envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx4g' GenotypeGVCFs \
                 -R {input.ref} \
                 -V gendb://{input.db} \
@@ -92,20 +92,23 @@ rule joint_call_cohort:
 # Variant quality score recalibration
 rule calls_recalibration:
     """Build a recalibration model."""
-    input: ref=config["ref"], vcf="joint-call.vcf.gz"
-    output: "{config[output_path]}/output.recal"
-    container: "docker://broadinstitute/gatk"
+    input: ref=config["ref"], vcf="{config[output_path]}/joint-call.vcf.gz"
+    output: recal="{config[output_path]}/output.recal", tranches="config[output_file]/output.tranches"
+    conda: "envs/gatk.yaml"
     shell: "gatk VariantRecalibrator \
                 -R {input.ref} \
                 -V {input.vcf} \
-                -O {output.recal}"
+                -O {output.recal} \
+                #add resources for known, truth, and training sets \
+                --tranches-file {output.tranches}"
 
 rule apply_recalibration:
     """Apply recalibration model."""
-    input: ref=config["ref"], vcf="joint-call.vcf.gz"
+    input: ref=config["ref"], vcf="{config[output_path]}/joint-call.vcf.gz", recal="{config[output_path]}/output.recal"
     output: "{config[output_path]}/recalibrated_joint-call.vcf.gz"
-    container: "docker://broadinstitute/gatk"
+    conda: "envs/gatk.yaml"
     shell: "gatk ApplyVQSR \
                 -R {input.ref} \
                 -V {input.vcf} \
-                -O {output}"
+                -O {output} \
+                --recal-file {input.recal}"

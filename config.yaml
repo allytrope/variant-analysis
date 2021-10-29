@@ -1,9 +1,6 @@
 ---
-
-# Reference genome, which should be placed in this same directory
-# Name is just for user understanding.
+# Path to reference genome
 ref: ../macaque/ref/Mmul_10.fna.gz
-#ref: /data/RHESUS/ref/Mmul_10.fasta
 
 # If reference genome isn't downloaded, change to appropriate address to download
 ref_address: ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Macaca_mulatta/latest_assembly_versions/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_genomic.fna.gz
