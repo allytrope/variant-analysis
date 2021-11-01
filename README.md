@@ -5,6 +5,7 @@
 To use all available tools, the following needs to be installed and accessible through $PATH:
 * `bwa`
 * `conda`
+* `mamba`
 * `gatk`
 * `snakemake`
 

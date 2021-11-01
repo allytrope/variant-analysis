@@ -9,4 +9,4 @@ ref_address: ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Macaca_mul
 dataset_path: /data/RHESUS/FASTQ/WES/combined/
 
 # Path to deposit output files
-output_path: ../macaque
+output_path: ../macaque/
