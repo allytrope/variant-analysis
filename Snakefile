@@ -1,8 +1,8 @@
-"""Contain all rules for performing variant analysis from paired-end FASTQ files."""
+"""Contain workflow for performing variant analysis from paired-end FASTQ files."""
 configfile: "config.yaml"
 
-#rule all:
-#    input: config["output_path"] + "/bam/WES16340.bam"
+rule all:
+    input: expand("{output_path}bam/{dataset}.bam", output_path=config["output_path"], dataset=config["data"])
 
 # Prepare reference genome
 rule download_ref:
@@ -42,28 +42,35 @@ rule remove_duplicates:
 
 rule base_recalibration:
     """Create recalibration table for correcting systemic error in base quality scores."""
-    input: ref=config["ref"], bam=config["output_path"] + "no_dupl_bam/{dataset}.bam"
-    output: config["output_path"] + "BQSR_recal.table"
+    input: ref=config["ref"],
+           bam=config["output_path"] + "no_dupl_bam/{dataset}.bam",
+           known_variants=config["vcf"]
+    output: config["output_path"] + "BQSR/{dataset}.BQSR.recal"
+    conda: "envs/gatk.yaml"
     shell: "gatk BaseRecalibrator \
                 -R {input.ref} \
                 -I {input.bam}\
-                --known-sites #add known_sites_of_variation.vcf \
+                --known-sites {input.known_variants} \
                 -O {output}"
 
 rule apply_base_recalibration:
     """Correct systemic error in base quality scores."""
-    input: ref=contig["ref"], bam=config["output_path"] + "no_dupl_bam/{dataset}.bam"
+    input: ref=config["ref"],
+           bam=config["output_path"] + "no_dupl_bam/{dataset}.bam",
+           recal=config["output_path"] + "BQSR/{dataset}.BQSR.recal"
     output: config["output_path"] + "cleaned_bam/{dataset}.bam"
+    conda: "envs/gatk.yaml"
     shell: "gatk ApplyBQSR \
                 -R {input.ref} \
                 -I {input.bam} \
-                --bqsr-recal-file BQSR_recal.table \
+                --bqsr-recal-file {input.recal} \
                 -O {output}"
 
 # Variant calling
 rule call_variants:
     """Call variants to make VCF file."""
-    input: ref=config["ref"], bam=config["output_path"] + "cleaned_bam/{dataset}.bam"
+    input: ref=config["ref"],
+           bam=config["output_path"] + "cleaned_bam/{dataset}.bam"
     output: config["output_path"] + "vcf/{dataset}.g.vcf"
     conda: "envs/gatk.yaml"
     shell: 'gatk --java-options "-Xmx4g" HaplotypeCaller \
@@ -101,7 +108,8 @@ rule consolidate:
 
 rule joint_call_cohort:
     """Use GenomicsDB to jointly call a VCF file."""
-    input: ref=config["ref"], db=config["output_path"] + "db"
+    input: ref=config["ref"],
+           db=config["output_path"] + "db"
     output: config["output_path"] + "joint-call.vcf.gz"
     conda: "envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx4g' GenotypeGVCFs \
@@ -112,23 +120,33 @@ rule joint_call_cohort:
 # Variant quality score recalibration
 rule calls_recalibration:
     """Build a recalibration model."""
-    input: ref=config["ref"], vcf=config["output_path"] + "joint-call.vcf.gz"
-    output: recal=config["output_path"] + "VQSR.recal", tranches=config["output_path"] + "output.tranches"
+    input: ref=config["ref"],
+           vcf=config["output_path"] + "joint-call.vcf.gz"
+           truth=config["truth_vcf"]
+           training=config["training_vcf"]
+    output: recal=config["output_path"] + "VQSR/VQSR.recal",
+            tranches=config["output_path"] + "VQSR/output.tranches"
     conda: "envs/gatk.yaml"
     shell: "gatk VariantRecalibrator \
                 -R {input.ref} \
                 -V {input.vcf} \
                 -O {output.recal} \
-                #add resources for known, truth, and training sets \
+                --resource source1,known=false,truth=true,training=true,prior=10.0:{input.truth} \
+                --resource source2,known=false,truth=false,training=true,prior=10.0:{input.training} \
+                #-an add anotations from VCF \
                 --tranches-file {output.tranches}"
 
 rule apply_variant_recalibration:
     """Apply recalibration model."""
-    input: ref=config["ref"], vcf=config["output_path"] + "joint-call.vcf.gz", recal=config["output_path"] + "VQSR.recal"
+    input: ref=config["ref"],
+           vcf=config["output_path"] + "joint-call.vcf.gz",
+           recal=config["output_path"] + "VQSR/VQSR.recal",
+           tranches=config["output_path"] + "VQSR/output.tranches"
     output: config["output_path"] + "recalibrated_joint-call.vcf.gz"
     conda: "envs/gatk.yaml"
     shell: "gatk ApplyVQSR \
                 -R {input.ref} \
                 -V {input.vcf} \
                 -O {output} \
-                --recal-file {input.recal}"
+                --recal-file {input.recal} \
+                --tranches-file {input.tranches}"

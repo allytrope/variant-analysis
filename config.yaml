@@ -5,8 +5,93 @@ ref: ../macaque/ref/Mmul_10.fna.gz
 # If reference genome isn't downloaded, change to appropriate address to download
 ref_address: ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Macaca_mulatta/latest_assembly_versions/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_genomic.fna.gz
 
+# Path to VCF for base_recalibration step
+vcf: ../macaque/ref/Mmul_10.vcf.gz
+
+# Path to VCFs for truth and training data for VQSR
+truth_vcf: ../macaque/ref/mult_obs_Mmul_10.vcf.gz
+training_vcf: ../macaque/ref/sing_obs_Mmul_10.vcf.gz
+
 # Full path to FASTQ data
 dataset_path: /data/RHESUS/FASTQ/WES/combined/
 
 # Path to deposit output files
 output_path: ../macaque/
+
+data:
+- WES16340
+- WES16356
+- WES16640
+- WES16645
+- WES16646
+- WES16653
+- WES17511
+- WES17534
+- WES17535
+- WES17553
+- WES18401
+- WES26875
+- WES27646
+- WES30009
+- WES30050
+- WES30466
+- WES30506
+- WES31310
+- WES32011
+- WES32825
+- WES33125
+- WES33425
+- WES33465
+- WES33679
+- WES33708
+- WES33721
+- WES33760
+- WES33851
+- WES34057
+- WES34100
+- WES34110
+- WES34687
+- WES34854
+- WES35114
+- WES35123
+- WES35127
+- WES36018
+- WES36055
+- WES36273
+- WES36442
+- WES36451
+- WES36452
+- WES36483
+- WES36489
+- WES36527
+- WES37037
+- WES37112
+- WES37183
+- WES37215
+- WES37559
+- WES37740
+- WES37766
+- WES37830
+- WES37866
+- WES37867
+- WES37874
+- WES37903
+- WES37904
+- WES37961
+- WES37990
+- WES38067
+- WES38141
+- WES38195
+- WES38303
+- WES38612
+- WES38613
+- WES38667
+- WES38713
+- WES38714
+- WES39219
+- WES39224
+- WES39225
+- WES39228
+- WES39233
+- WES39235
+- WES39874
