@@ -1,8 +1,13 @@
 """Contain workflow for performing variant analysis from paired-end FASTQ files."""
 configfile: "config.yaml"
 
+# Path and sample names for input .fastq files
+import os
+FULL_SAMPLE_PATHS = [os.path.split(path) for path in config["data"]]
+SAMPLE_PATHS, SAMPLE_NAMES = zip(*FULL_SAMPLE_PATHS)
+
 rule all:
-    input: expand("{output_path}bam/{dataset}.bam", output_path=config["output_path"], dataset=config["data"])
+    input: expand("{output_path}bam/{sample}.bam", output_path=config["output_path"], sample=SAMPLE_NAMES)
 
 # Prepare reference genome
 rule download_ref:
@@ -16,23 +21,28 @@ rule index_ref:
     output: multiext(config["ref"], ".amb", ".ann", ".bwt", ".pac", ".sa")
     shell: "bwa index {input}"
 
+def sample_path(sample):
+    """Find path for corresponding sample name."""
+    idx = SAMPLE_NAMES.index(sample)
+    return SAMPLE_PATHS[idx] + "/"
+
 # Alignment
 rule align:
     """Align .fastq sequence to reference genome."""
     input: ref=config["ref"],
            idxs=multiext(config["ref"], ".amb", ".ann", ".bwt", ".pac", ".sa"),
-           read_1=config["dataset_path"] + "{dataset}.R1.fastq.gz",
-           read_2=config["dataset_path"] + "{dataset}.R2.fastq.gz"
-    output: config["output_path"] + "bam/{dataset}.bam"
+           read_1=lambda wildcards: sample_path("{sample}".format(sample=wildcards.sample)) + "{sample}.R1.fastq.gz",
+           read_2=lambda wildcards: sample_path("{sample}".format(sample=wildcards.sample)) + "{sample}.R2.fastq.gz"
+    output: config["output_path"] + "bam/{sample}.bam"
     shell: "bwa mem {input.ref} {input.read_1} {input.read_2} | \
             samtools view -Sb - > {output}"
 
 # Post-alignment cleanup
 rule remove_duplicates:
     """Mark duplicates with decimal value 1024."""
-    input: config["output_path"] + "bam/{dataset}.bam"
-    output: mdup=config["output_path"] + "no_dupl_bam/{dataset}.bam",
-            metrics=config["output_path"] + "no_dupl_bam/{dataset}.metrics.txt"
+    input: config["output_path"] + "bam/{sample}.bam"
+    output: mdup=config["output_path"] + "no_dupl_bam/{sample}.bam",
+            metrics=config["output_path"] + "no_dupl_bam/{sample}.metrics.txt"
     conda: "envs/gatk.yaml"
     shell: "gatk MarkDuplicateSpark \
                 -I {input} \
@@ -43,22 +53,22 @@ rule remove_duplicates:
 rule base_recalibration:
     """Create recalibration table for correcting systemic error in base quality scores."""
     input: ref=config["ref"],
-           bam=config["output_path"] + "no_dupl_bam/{dataset}.bam",
+           bam=config["output_path"] + "no_dupl_bam/{sample}.bam",
            known_variants=config["vcf"]
-    output: config["output_path"] + "BQSR/{dataset}.BQSR.recal"
+    output: config["output_path"] + "BQSR/{sample}.BQSR.recal"
     conda: "envs/gatk.yaml"
     shell: "gatk BaseRecalibrator \
                 -R {input.ref} \
-                -I {input.bam}\
+                -I {input.bam} \
                 --known-sites {input.known_variants} \
                 -O {output}"
 
 rule apply_base_recalibration:
     """Correct systemic error in base quality scores."""
     input: ref=config["ref"],
-           bam=config["output_path"] + "no_dupl_bam/{dataset}.bam",
-           recal=config["output_path"] + "BQSR/{dataset}.BQSR.recal"
-    output: config["output_path"] + "cleaned_bam/{dataset}.bam"
+           bam=config["output_path"] + "no_dupl_bam/{sample}.bam",
+           recal=config["output_path"] + "BQSR/{sample}.BQSR.recal"
+    output: config["output_path"] + "cleaned_bam/{sample}.bam"
     conda: "envs/gatk.yaml"
     shell: "gatk ApplyBQSR \
                 -R {input.ref} \
@@ -70,8 +80,8 @@ rule apply_base_recalibration:
 rule call_variants:
     """Call variants to make VCF file."""
     input: ref=config["ref"],
-           bam=config["output_path"] + "cleaned_bam/{dataset}.bam"
-    output: config["output_path"] + "vcf/{dataset}.g.vcf"
+           bam=config["output_path"] + "cleaned_bam/{sample}.bam"
+    output: config["output_path"] + "vcf/{sample}.g.vcf"
     conda: "envs/gatk.yaml"
     shell: 'gatk --java-options "-Xmx4g" HaplotypeCaller \
                 -R {input.ref} \
@@ -79,26 +89,22 @@ rule call_variants:
                 -O {output} \
                 -ERC GVCF'
 
-#modify "cut" to be inclusive of more names
-DATASETS = [dataset for dataset in shell("find {config[dataset_path]} -type f -name '*\.R1.fastq.gz'| cut -c3-10", iterable=True)]
-
 rule create_sample_map:
     """Create sample map that contains names and paths to all VCFs to be used in consolidate rule."""
-    input: expand("{output_path}{dataset}.g.vcf", output_path=config["output_path"], dataset=DATASETS)
+    input: expand("{output_path}vcf/{sample}.g.vcf", output_path=config["output_path"], sample=SAMPLE_NAMES)
     output: config["output_path"] + "/cohort.sample_map"
     run:
         import os
         with open("cohort.sample_map", "w") as out:
-            for location in DATASETS:
-                base_file = os.path.basename(location)
-                base_name = os.path.splitext(base_file)[0]
-                string = base_name + "\t" + config["output_path"] + "vcf/" + base_name + ".vcf.gz" + "\n"
+            for path, sample in FULL_SAMPLE_PATHS:
+                string = sample + "\t" + config["output_path"] + "vcf/" + sample + ".vcf.gz" + "\n"
                 out.write(string)
+
 
 # Consolidation of GVCFs
 rule consolidate:
     """Combines GVCFs into GenomicsDB (a datastore)."""
-    input: expand("{output_path}{dataset}.g.vcf", output_path=config["output_path"], dataset=DATASETS), config["output_path"] + "cohort.sample_map"
+    input: expand("{output_path}{sample}.g.vcf", output_path=config["output_path"], sample=SAMPLE_NAMES), config["output_path"] + "cohort.sample_map"
     output: config["output_path"] + "db/genomicsdb"
     conda: "envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx4g -Xms4g' GenomicsDBImport \
@@ -121,8 +127,8 @@ rule joint_call_cohort:
 rule calls_recalibration:
     """Build a recalibration model."""
     input: ref=config["ref"],
-           vcf=config["output_path"] + "joint-call.vcf.gz"
-           truth=config["truth_vcf"]
+           vcf=config["output_path"] + "joint-call.vcf.gz",
+           truth=config["truth_vcf"],
            training=config["training_vcf"]
     output: recal=config["output_path"] + "VQSR/VQSR.recal",
             tranches=config["output_path"] + "VQSR/output.tranches"
