@@ -2,14 +2,15 @@
 
 ## Dependencies
 
-To use all available tools, the following needs to be installed:
+To use all available tools, the following needs to be installed and accessible through `$PATH`:
 * `bwa`
 * `conda`
-* `mamba`
 * `gatk`
+* `lcMLkin`
+* `mamba`
 * `snakemake`
 
-The method used for testing this program involved installing `conda` and creating a conda environment containing `bwa`, `mamba`, and `snakemake`. To receive the most up-to-date version of `gatk`, download the release from the [GitHub GATK page](https://github.com/broadinstitute/gatk/releases) and build the GATK conda environment as described in [GATK conda instructions](https://gatk.broadinstitute.org/hc/en-us/articles/360035889851--How-to-Install-and-use-Conda-for-GATK4). The environment should be named `envs/gatk.yaml` in the top-level directory of this package.
+The method used for testing this program involved installing `conda` and creating a conda environment containing `bwa`, `mamba`, and `snakemake`. To receive the most up-to-date version of `gatk`, download the release from the [GitHub GATK page](https://github.com/broadinstitute/gatk/releases) and build the GATK conda environment as described in [GATK conda instructions](https://gatk.broadinstitute.org/hc/en-us/articles/360035889851--How-to-Install-and-use-Conda-for-GATK4). The environment should be named `envs/gatk.yaml` in the top-level directory of this package. `lcMLkin` can be cloned from the [GitHub page](https://github.com/COMBINE-lab/maximum-likelihood-relatedness-estimation).
 
 
 ## Data Preparation
@@ -27,7 +28,7 @@ For BQSR:
 
 For VQSR:
 * VCF for truth variants
-* VCF for training variantsls
+* VCF for training variants
 
 
 ## Output
