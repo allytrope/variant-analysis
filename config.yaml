@@ -8,12 +8,21 @@ ref: ../macaque/ref/Mmul_10.fna.gz
 # Path to VCF for base_recalibration step
 vcf: ../macaque/ref/Mmul_10.vcf.gz
 
-# Path to VCFs for truth and training data for VQSR
-truth_vcf: ../macaque/ref/mult_obs_Mmul_10.vcf.gz
-training_vcf: ../macaque/ref/sing_obs_Mmul_10.vcf.gz
+VQSR:
+  # Path to VCFs for truth and training data for VQSR
+  truth_vcf: ../macaque/ref/mult_obs_Mmul_10.vcf.gz
+  training_vcf: ../macaque/ref/sing_obs_Mmul_10.vcf.gz
 
 # Path to deposit output files
 output_path: ../macaque/
+
+lcmlkin:
+  # .txt file of founders
+  founders: resources/founders.list
+  vcf: resources/rhesus_gbs_pass_filter.vcf
+
+shapeit4:
+  map: 
 
 # Path to each input FASTQ file
 data:
