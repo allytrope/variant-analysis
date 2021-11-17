@@ -1,0 +1,35 @@
+---
+ref:
+  # If reference genome isn't downloaded, change to appropriate address to download
+  address: ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Macaca_mulatta/latest_assembly_versions/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_genomic.fna.gz
+  # Path to reference genome
+  fasta: ../../macaque/ref/Mmul_10.fna.gz
+
+# Path to VCF for base_recalibration step
+vcf: ../../macaque/ref/Mmul_10.vcf.gz
+
+VQSR:
+  # Path to VCFs for truth and training data for VQSR
+  truth_vcf: ../../macaque/ref/mult_obs_Mmul_10.vcf.gz
+  training_vcf: ../../macaque/ref/sing_obs_Mmul_10.vcf.gz
+
+# Path to deposit output files
+output_path: ../../macaque/
+
+lcmlkin:
+  # .txt file of founders
+  founders: 
+  vcf: 
+
+plink:
+  pedigree: 
+
+shapeit4:
+  map: 
+
+# Path to each input FASTQ file
+data:
+- /data/RHESUS/FASTQ/WGS/WGS_April_2021_raw_data/WGS14399
+- /data/RHESUS/FASTQ/WGS/WGS_April_2021_raw_data/WGS14785
+- /data/RHESUS/FASTQ/WGS/WGS_April_2021_raw_data/WGS16342
+

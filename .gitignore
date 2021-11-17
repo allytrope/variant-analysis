@@ -1,4 +1,7 @@
 .DS_Store
 .snakemake
+config/Mmul_8.yaml
 extra_code.sh
+resources
+results
 run_snakemake.sh

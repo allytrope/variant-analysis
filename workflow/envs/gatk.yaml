@@ -60,4 +60,4 @@ dependencies:
 
 # pip installs should be avoided, as pip may not respect the dependencies found by the conda solver
 - pip:
-  - gatkPythonPackageArchive.zip
+  - ../../../gatk-4.2.2.0/gatkPythonPackageArchive.zip
