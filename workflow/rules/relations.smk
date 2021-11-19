@@ -1,6 +1,7 @@
-"""Contain rules for determining relatedness among individuals."""
+"""Contain rules for determining relatedness among individuals.
+These rules will generally take place after those in `variant_calling.smk`.
+"""
 
-# Post VCF
 '''
 rule vcf2geno:
     input:
@@ -14,27 +15,36 @@ rule estimate_relatedness_lcmlkin:
            founders=config["lcmlkin"]["founders"]
     output: config["output_path"] + "joint-call/Mmul_8.recalibrated_joint-call2.relate"
     threads: 8 # max of 8
-    shell: "set -x; lcmlkin \
+    shell: "lcmlkin \
             -i {input.vcf} \
             -o {output} \
             -g all \
             -l phred \
             -u {input.founders} \
             -t {threads}"
-
+'''
 rule create_ped:
     """Create PLINK .ped file."""
-    input: script="scripts/create_ped.awk",
+    input: script=ancient("scripts/create_ped.awk"),
            pedigree=config["plink"]["pedigree"]
-    output: config["output_path2"] + "plink/GbS_2020.ped"
+    output: config["output_path"] + "plink/GbS_2020.ped"
     shell: "awk -f {input.script} {input.pedigree} > {output}"
 
 rule create_map:
     """Create PLINK .map file."""
-    input: script="scripts/create_map.awk",
+    input: script=ancient("scripts/create_map.awk"),
            vcf=config["lcmlkin"]["vcf"]
-    output: config["output_path2"] + "plink/GbS_2020.map"
+    output: config["output_path"] + "plink/GbS_2020.map"
     shell: "egrep -v '^#' {input.vcf} | awk -f {input.script} > {output}"
+'''
+
+rule create_ped_files:
+    """Create PLINK .ped and .map files."""
+    input: vcf=config["lcmlkin"]["vcf"]
+    output: ped=config["output_path"] + "plink/{dataset}.ped",
+            map=config["output_path"] + "plink/{dataset}.map"
+    shell: "vcftools --vcf {input.vcf} --plink --out {wildcards.dataset}"
+
 '''
 rule create_bed:
     """Create .bed and associated PLINK files."""
@@ -45,16 +55,26 @@ rule create_bed:
             --make-bed"
 '''
 
+rule recode_ped_files:
+    input: ped=config["output_path"] + "plink/{name}.ped",
+           map=config["output_path"] + "plink/{name}.map"
+    output: ped=config["output_path"] + "plink/{name}_recode12.ped",
+            map=config["output_path"] + "plink/{name}_recode12.map"
+    wildcard_constraints: name="\w+"
+    shell: "plink --file  " + config["output_path"] + " plink/{wildcards.name} --recode12 --out " + config["output_path"] + " plink/{wildcards.name}_recode12"
+
 rule admixture:
     """Estimate relatedness."""
-    input: ped=config["output_path2"] + "plink/{name}.ped",
-           map=config["output_path2"] + "plink/{name}.map"
+    input: ped=config["output_path"] + "plink/{dataset}_recode12.ped",
+           map=config["output_path"] + "plink/{dataset}_recode12.map"
+    output: q=config["output_path"] + "relatedness/{dataset}.2.Q",
+            p=config["output_path"] + "relatedness/{dataset}.2.P"
     params: ancestral_populations=2
-    output: config["output_path2"] + "relatedness/{name}.{params.ancestral_populations}.Q",
-            config["output_path2"] + "relatedness/{name}.{params.ancestral_populations}.P"
     threads: 24
     shell: "admixture {input.ped} {params.ancestral_populations} \
-            -j{threads}"
+            -j{threads}; \
+            mv {wildcards.dataset}.{params.ancestral_populations}.Q {output.q}; \
+            mv {wildcards.dataset}.{params.ancestral_populations}.P {output.p}"
 
 '''
 rule create_genotypefile:

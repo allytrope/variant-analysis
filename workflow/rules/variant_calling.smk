@@ -2,8 +2,12 @@
 
 # Path and sample names for input .fastq files
 import os
-FULL_SAMPLE_PATHS = [os.path.split(path) for path in config["data"]]
-SAMPLE_PATHS, SAMPLE_NAMES = zip(*FULL_SAMPLE_PATHS)
+
+if config["data"]:
+    FULL_SAMPLE_PATHS = [os.path.split(path) for path in config["data"]]
+    SAMPLE_PATHS, SAMPLE_NAMES = zip(*FULL_SAMPLE_PATHS)
+else:
+    FULL_SAMPLE_PATHS = SAMPLE_PATHS = SAMPLE_NAMES = []
 
 # Prepare reference genome
 rule download_ref:
@@ -29,7 +33,7 @@ rule align:
            idxs=multiext(config["ref"]["fasta"], ".amb", ".ann", ".bwt", ".pac", ".sa"),
            read_1=lambda wildcards: sample_path("{sample}".format(sample=wildcards.sample)) + "{sample}.R1.fastq.gz",
            read_2=lambda wildcards: sample_path("{sample}".format(sample=wildcards.sample)) + "{sample}.R2.fastq.gz"
-    output: config["output_path"] + "bam/{sample}.bam"
+    output: config["output_path"] + "alignments/{sample}.bam"
     threads: 24
     shell: "bwa mem -t {threads} {input.ref} {input.read_1} {input.read_2} | \
             samtools view -Sb - > {output}"
@@ -37,9 +41,9 @@ rule align:
 # Post-alignment cleanup
 rule mark_duplicates:
     """Mark duplicates with decimal value 1024."""
-    input: config["output_path"] + "bam/{sample}.bam"
-    output: mdup=config["output_path"] + "marked-bam/{sample}.bam",
-            metrics=config["output_path"] + "marked-bam/{sample}.metrics.txt"
+    input: config["output_path"] + "alignments/{sample}.bam"
+    output: mdup=temp(config["output_path"] + "marked_bam/{sample}.bam"),
+            metrics=config["output_path"] + "marked_bam/{sample}.metrics.txt"
     conda: "envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' MarkDuplicatesSpark \
                 -I {input} \
@@ -50,7 +54,7 @@ rule mark_duplicates:
 rule base_recalibration:
     """Create recalibration table for correcting systemic error in base quality scores."""
     input: ref=config["ref"]["fasta"],
-           bam=config["output_path"] + "marked-bam/{sample}.bam",
+           bam=config["output_path"] + "marked_bam/{sample}.bam",
            known_variants=config["vcf"]
     output: config["output_path"] + "BQSR/{sample}.BQSR.recal"
     conda: "envs/gatk.yaml"
@@ -96,7 +100,6 @@ rule create_sample_map:
             for path, sample in FULL_SAMPLE_PATHS:
                 string = sample + "\t" + config["output_path"] + "vcf/" + sample + ".g.vcf.gz" + "\n"
                 out.write(string)
-
 
 # Consolidation of GVCFs
 rule consolidate:
