@@ -28,6 +28,7 @@ plink:
 
 shapeit4:
   map: 
+  effective_population_size: 
 
 # Path to each input FASTQ file
 data:
