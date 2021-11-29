@@ -16,7 +16,10 @@ channels:
 # verify that key dependencies are installed from the correct channel and compiled against MKL
 - conda-forge
 - defaults
+
 dependencies:
+# java 1.8 specifically required
+- bioconda::java-jdk=8.0.112
 
 # core python dependencies
 - conda-forge::python=3.6.10        # do not update
@@ -57,7 +60,3 @@ dependencies:
 - biopython=1.76
 - pyvcf=0.6.8
 - bioconda::pysam=0.15.3            # using older conda-installed versions may result in libcrypto / openssl bugs
-
-# pip installs should be avoided, as pip may not respect the dependencies found by the conda solver
-- pip:
-  - ../../../gatk-4.2.2.0/gatkPythonPackageArchive.zip

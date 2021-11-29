@@ -60,30 +60,32 @@ rule admixture:
             mv {wildcards.dataset}_recode12.{params.ancestral_populations}.Q {output.q}; \
             mv {wildcards.dataset}_recode12.{params.ancestral_populations}.P {output.p}"
 
+# Under development
+'''
 rule create_pop:
     """Create admixture .pop file."""
-    input:
-    output:
-    shell:
+    output: config["output_path"] + "plink/{dataset}.pop"
+    shell: "ls"
+'''
 
 rule supervised_admixture:
-    """Estiamte relatedness while taking into account known ancestry."""
+    """Estimate relatedness while taking into account known ancestry."""
     input: ped=config["output_path"] + "plink/{dataset}_recode12.ped",
            map=config["output_path"] + "plink/{dataset}_recode12.map",
-           pop=config["output_path"] + "plink/{dataset}.pop" # MAKE .POP FILE
+           population=config["output_path"] + "plink/{dataset}.pop" # MAKE .POP FILE
     output: q=config["output_path"] + "relatedness/{dataset}.2.Q",
             p=config["output_path"] + "relatedness/{dataset}.2.P"
     params: ancestral_populations=2
     threads: 24
     shell: "admixture {input.ped} {params.ancestral_populations} \
-            --supervised {input.pop} \
+            --supervised {input.population} \
             -j{threads}; \
             mv {wildcards.dataset}_recode12.{params.ancestral_populations}.Q {output.q}; \
             mv {wildcards.dataset}_recode12.{params.ancestral_populations}.P {output.p}"
-    
+'''
 # Under development
 rule split_by_chrom:
-    '''Split data by chromosome '''
+    """Split data by chromosome."""
     input: ped=config["output_path"] + "plink/{dataset}.ped",
            map=config["output_path"] + "plink/{dataset}.map"
     output: expand("{output_path}plink/{dataset}.{chr}.ped", output_path=config["output_path"], chr=list(range(1, 23)) + ['X']),
@@ -91,13 +93,15 @@ rule split_by_chrom:
     shell: "for i in {{{{1..20}},X}}; do \
                 echo '-B {dataset}.$1 \
                     -O'"
-    shell: "for chr in {1..22}; do \
-                plink \
-                    --file {} \
-                    --chr {} \
-                    --recode \
-                    --out {}; \
-            done"
+'''
+
+'''for chr in {1..22}; do \
+plink \
+--file {} \
+--chr {} \
+--recode \
+--out {}; \
+done"'''
 
 rule haplotype_estimation:
     """Estimate haplotypes. Implementation assumes a constant recombination rate between SNPs."""
@@ -105,7 +109,7 @@ rule haplotype_estimation:
            map=config["output_path"] + "plink/{dataset}.{chr}.map"
     output: haps=config["output_path"] + "haplotypes/{dataset}.{chr}.phased.haps",
             sample=config["output_path"] + "haplotypes/{dataset}.{chr}.phased.sample"
-    log: config["output_path"] + "haplotypes/phased.log"
+    log: config["output_path"] + "haplotypes/{dataset}.{chr}.log"
     params: effective_size = config["shapeit"]["effective_population_size"]
     threads: 24
     shell: "shapeit \
@@ -115,9 +119,10 @@ rule haplotype_estimation:
                 --efective-size {params.effective_size} \
                 --thread {threads}"
 
+'''
 rule impute:
     """Genotype imputation."""
-    input:
-    output:
+    input: ""
+    output: ""
     shell: "impute2"
-
+'''

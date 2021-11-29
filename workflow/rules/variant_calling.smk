@@ -1,8 +1,9 @@
 """Contain workflow for performing variant analysis from paired-end FASTQ files."""
 
-# Path and sample names for input .fastq files
+import gzip
 import os
 
+# Path and sample names for input .fastq files
 if config["data"]:
     FULL_SAMPLE_PATHS = [os.path.split(path) for path in config["data"]]
     SAMPLE_PATHS, SAMPLE_NAMES = zip(*FULL_SAMPLE_PATHS)
@@ -38,13 +39,47 @@ rule align:
     shell: "bwa mem -t {threads} {input.ref} {input.read_1} {input.read_2} | \
             samtools view -Sb - > {output}"
 
+def find_read_group_info(sample):
+    """Find corresponding .fastq file from sample name. For Casava 1.8 Illumina header implementation."""
+    for file in config["data"]:
+        if file.endswith(sample):
+            with gzip.open(file + ".R1.fastq.gz", "rt") as fastq:
+                line = fastq.readline()
+                header = line.split(":")
+                print("before rgid")
+                rgid = header[2] + "." + header[3]
+                rgpu = None
+                rgsm = sample
+                rgpl = "ILLUMINA"
+                rglb = None
+                print("Read group info:", rgid, rgpu, rgsm, rgpl, rglb)
+                return rgid, rgpu, rgsm, rgpl, rglb
+            #print(file)
+            #shell("gunzip -c " + file + ".R1.fastq.gz | head -n 1")
+
+#find_read_group_info("GBS30618")
+
+rule add_read_groups:
+    """Add @RG row to .bam header."""
+    input: config["output_path"] + "alignments/{sample}.bam"
+    output: config["output_path"] + "alignments_rg/{sample}.bam"
+    params: header = lambda wildcards: find_read_group_info("{sample}".format(sample=wildcards.sample))
+    conda: "../envs/gatk.yaml"
+    shell: "conda env list; gatk AddOrReplaceReadGroups \
+      I={input} \
+      O={output} \
+      RGID={params.header[0]} \
+      RGPL={params.header[3]}\
+      RGSM={params.header[2]}"
+      #can also include RGLB and RGPU if known
+
 # Post-alignment cleanup
 rule mark_duplicates:
     """Mark duplicates with decimal value 1024."""
-    input: config["output_path"] + "alignments/{sample}.bam"
-    output: mdup=temp(config["output_path"] + "marked_bam/{sample}.bam"),
-            metrics=config["output_path"] + "marked_bam/{sample}.metrics.txt"
-    conda: "envs/gatk.yaml"
+    input: config["output_path"] + "alignments_rg/{sample}.bam"
+    output: mdup=config["output_path"] + "marked_bam/{sample}.bam",
+            metrics=config["output_path"] + "marked_bam/{sample}.marked_dup.metrics.txt"
+    conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' MarkDuplicatesSpark \
                 -I {input} \
                 -O {output.mdup} \
@@ -57,7 +92,7 @@ rule base_recalibration:
            bam=config["output_path"] + "marked_bam/{sample}.bam",
            known_variants=config["vcf"]
     output: config["output_path"] + "BQSR/{sample}.BQSR.recal"
-    conda: "envs/gatk.yaml"
+    conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' BaseRecalibrator \
                 -R {input.ref} \
                 -I {input.bam} \
@@ -70,7 +105,7 @@ rule apply_base_recalibration:
            bam=config["output_path"] + "marked-bam/{sample}.bam",
            recal=config["output_path"] + "BQSR/{sample}.BQSR.recal"
     output: config["output_path"] + "cleaned_bam/{sample}.bam"
-    conda: "envs/gatk.yaml"
+    conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' ApplyBQSR \
                 -R {input.ref} \
                 -I {input.bam} \
@@ -83,7 +118,7 @@ rule call_variants:
     input: ref=config["ref"]["fasta"],
            bam=config["output_path"] + "cleaned_bam/{sample}.bam"
     output: config["output_path"] + "vcf/{sample}.g.vcf.gz"
-    conda: "envs/gatk.yaml"
+    conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' HaplotypeCaller \
                 -R {input.ref} \
                 -I {input.bam} \
@@ -106,7 +141,7 @@ rule consolidate:
     """Combines GVCFs into GenomicsDB (a datastore)."""
     input: expand("{output_path}{sample}.g.vcf", output_path=config["output_path"], sample=SAMPLE_NAMES), config["output_path"] + "cohort.sample_map"
     output: config["output_path"] + "db/genomicsdb"
-    conda: "envs/gatk.yaml"
+    conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' GenomicsDBImport \
                 --sample-name-map cohort.sample_map \
                 --genomicsdb-workspace-path db \
@@ -117,7 +152,7 @@ rule joint_call_cohort:
     input: ref=config["ref"]["fasta"],
            db=config["output_path"] + "db"
     output: config["output_path"] + "joint-call/joint-call.vcf.gz"
-    conda: "envs/gatk.yaml"
+    conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' GenotypeGVCFs \
                 -R {input.ref} \
                 -V gendb://{input.db} \
@@ -132,7 +167,7 @@ rule calls_recalibration:
            training=config["VQSR"]["training_vcf"]
     output: recal=config["output_path"] + "VQSR/VQSR.recal",
             tranches=config["output_path"] + "VQSR/output.tranches"
-    conda: "envs/gatk.yaml"
+    conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' VariantRecalibrator \
                 -R {input.ref} \
                 -V {input.vcf} \
@@ -149,7 +184,7 @@ rule apply_variant_recalibration:
            recal=config["output_path"] + "VQSR/VQSR.recal",
            tranches=config["output_path"] + "VQSR/output.tranches"
     output: config["output_path"] + "joint-call/recalibrated_joint-call.vcf.gz"
-    conda: "envs/gatk.yaml"
+    conda: "../envs/gatk.yaml"
     shell: "gatk --java-options 'Xmx8g' ApplyVQSR \
                 -R {input.ref} \
                 -V {input.vcf} \
