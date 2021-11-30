@@ -3,36 +3,35 @@ ref:
   # If reference genome isn't downloaded, change to appropriate address to download
   address: ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Macaca_mulatta/latest_assembly_versions/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_genomic.fna.gz
   # Path to reference genome
-  fasta: ../results/Mmul_10/ref/Mmul_10.fna.gz
+  fasta: results/Mmul_10/ref/Mmul_10.fna.gz
 
 # Path to VCF for base_recalibration step
-vcf: ../results/Mmul_10/ref/Mmul_10.vcf.gz
+vcf: results/Mmul_10/ref/Mmul_10.vcf.gz
 
 VQSR:
   # Path to VCFs for truth and training data for VQSR
-  truth_vcf: ../results/Mmul_10/ref/mult_obs_Mmul_10.vcf.gz
-  training_vcf: ../results/Mmul_10/ref/sing_obs_Mmul_10.vcf.gz
+  truth_vcf: results/Mmul_10/ref/mult_obs_Mmul_10.vcf.gz
+  training_vcf: results/Mmul_10/ref/sing_obs_Mmul_10.vcf.gz
 
 # Path to deposit output files
-output_path: ../results/Mmul_10/
+output_path: results/Mmul_10/
 
-log: ../log/Mmul_10/
+log: log/Mmul_10/
 
 lcmlkin:
   # .txt file of founders
-  founders: 
-  vcf: 
+  founders: ''
+  vcf: ''
 
 plink:
-  pedigree: 
+  pedigree: ''
 
-shapeit4:
-  map: 
-  effective_population_size: 
+population:
+  map: ''
+  effective_size: 
 
 # Path to each input FASTQ file
 data:
-- /data/RHESUS/FASTQ/WGS/WGS_April_2021_raw_data/WGS14399
-- /data/RHESUS/FASTQ/WGS/WGS_April_2021_raw_data/WGS14785
-- /data/RHESUS/FASTQ/WGS/WGS_April_2021_raw_data/WGS16342
-
+- /data/RHESUS/FASTQ/GBS/rhesus_GBS_demultiplex_output_2019043/GBS30618_2
+- /data/RHESUS/FASTQ/GBS/rhesus_GBS_demultiplex_output_2019043/GBS30651_2
+- /data/RHESUS/FASTQ/GBS/rhesus_GBS_demultiplex_output_2019043/GBS30739_2

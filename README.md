@@ -5,12 +5,14 @@ To use all available tools, the following needs to be installed and accessible t
 * `bwa`
 * `conda`
 * `gatk`
+* `impute2`
 * `lcMLkin`
 * `mamba`
-* `shapeit4`
+* `plink`
+* `shapeit`
 * `snakemake`
 
-The method used for testing this program involved installing `conda` and creating a conda environment containing `bwa`, `mamba`, and `snakemake`. To receive the most up-to-date version of `gatk`, download the release from the [GitHub GATK page](https://github.com/broadinstitute/gatk/releases) and build the GATK conda environment as described in [GATK conda instructions](https://gatk.broadinstitute.org/hc/en-us/articles/360035889851--How-to-Install-and-use-Conda-for-GATK4). The environment should be stored under `/workflow/envs/gatk.yaml`. Other programs can be installed with their using their download instructions. For example,`lcMLkin` can be cloned from the [GitHub page](https://github.com/COMBINE-lab/maximum-likelihood-relatedness-estimation).
+The method used for testing this program involved installing `conda` and creating a conda environment containing `bwa`, `mamba`, and `snakemake`. To receive the most up-to-date version of `gatk`, download the release from the [GitHub GATK page](https://github.com/broadinstitute/gatk/releases). GATK dependecies will be installed automatically in their own environment when run at `/workflow/envs/gatk.yaml`. Other programs can be installed using their corresponding download instructions. For example,`lcMLkin` can be cloned from the [GitHub page](https://github.com/COMBINE-lab/maximum-likelihood-relatedness-estimation).
 
 
 ## Configuration
@@ -37,7 +39,7 @@ The output files to be generated (as well as all intermediate files) must be set
 
 ## Running
 
-The starting point for running this tool is to first navigate to the directory `workflow`. Inside is a file called `Snakefile`. Running `snakemake` on the command line will call this file. 
+Running `snakemake` directly within the project's main directory on the command line will initiate the program by calling `workflow/Snakefile`. 
 
 For running on a SGE cluster, the following command can be issued from the directory that contains the `Snakefile`:
 `snakemake --use-conda --cluster "qsub -V -b n -cwd -N smk_variant -o smk_variant.output.log -e smk_variant.error.log" -j 100`

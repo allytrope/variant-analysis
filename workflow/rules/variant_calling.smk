@@ -46,45 +46,51 @@ def find_read_group_info(sample):
             with gzip.open(file + ".R1.fastq.gz", "rt") as fastq:
                 line = fastq.readline()
                 header = line.split(":")
-                print("before rgid")
                 rgid = header[2] + "." + header[3]
-                rgpu = None
+                rgpu = header[2] + "." + header[3] + "." + sample
                 rgsm = sample
                 rgpl = "ILLUMINA"
-                rglb = None
+                rglb = sample  # Using sample name to make every .fastq file count as separate library
                 print("Read group info:", rgid, rgpu, rgsm, rgpl, rglb)
                 return rgid, rgpu, rgsm, rgpl, rglb
-            #print(file)
-            #shell("gunzip -c " + file + ".R1.fastq.gz | head -n 1")
-
-#find_read_group_info("GBS30618")
 
 rule add_read_groups:
     """Add @RG row to .bam header."""
     input: config["output_path"] + "alignments/{sample}.bam"
     output: config["output_path"] + "alignments_rg/{sample}.bam"
-    params: header = lambda wildcards: find_read_group_info("{sample}".format(sample=wildcards.sample))
+    params: header_rg = lambda wildcards: find_read_group_info("{sample}".format(sample=wildcards.sample))
     conda: "../envs/gatk.yaml"
-    shell: "conda env list; gatk AddOrReplaceReadGroups \
-      I={input} \
-      O={output} \
-      RGID={params.header[0]} \
-      RGPL={params.header[3]}\
-      RGSM={params.header[2]}"
-      #can also include RGLB and RGPU if known
+    shell: "gatk AddOrReplaceReadGroups \
+      -I {input} \
+      -O {output} \
+      -RGID {params.header_rg[0]} \
+      -RGPU {params.header_rg[1]} \
+      -RGSM {params.header_rg[2]} \
+      -RGPL {params.header_rg[3]} \
+      -RGLB {params.header_rg[4]} \
+      "
+
+rule sort_reads:
+    """Sort reads in .bam file."""
+    input: config["output_path"] + "alignments_rg/{sample}.bam"
+    output: config["output_path"] + "sorted_alignments/{sample}.bam"
+    conda: "../envs/gatk.yaml"
+    shell: "gatk SortSam \
+                -I {input} \
+                -O {output} \
+                -SORT_ORDER coordinate"
 
 # Post-alignment cleanup
 rule mark_duplicates:
     """Mark duplicates with decimal value 1024."""
-    input: config["output_path"] + "alignments_rg/{sample}.bam"
+    input: config["output_path"] + "sorted_alignments/{sample}.bam"
     output: mdup=config["output_path"] + "marked_bam/{sample}.bam",
             metrics=config["output_path"] + "marked_bam/{sample}.marked_dup.metrics.txt"
     conda: "../envs/gatk.yaml"
-    shell: "gatk --java-options '-Xmx8g' MarkDuplicatesSpark \
+    shell: "gatk --java-options '-Xmx8g' MarkDuplicates \
                 -I {input} \
                 -O {output.mdup} \
-                -M {output.metrics} \
-                --spark-master local[*]"
+                -M {output.metrics}"
 
 rule base_recalibration:
     """Create recalibration table for correcting systemic error in base quality scores."""
