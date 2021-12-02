@@ -1,8 +1,10 @@
 """Beginning of execution for `snakemake` command."""
 
-configfile: "../config/Mmul_8.yaml"
+configfile: "config/Mmul_8.yaml"
 include: "rules/variant_calling.smk"
 include: "rules/relations.smk"
+wildcard_constraints:
+    dataset="\w+"
 
 rule all:
     """Generate target files. This rule runs automatically when Snakefile is run.
