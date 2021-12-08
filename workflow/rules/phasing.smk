@@ -10,8 +10,7 @@ rule split_by_chrom:
                 --file " + config["results"] + "plink/{wildcards.dataset} \
                 --chr {wildcards.chr} \
                 --out " + config["results"] + "plink/split/{wildcards.dataset}.chr{wildcards.chr} \
-                --recode \
-                --noweb"
+                --recode"
 
 rule create_gen:
     """Create .gen file for IMPUTE."""
@@ -30,13 +29,20 @@ rule haplotype_estimation:
     input: ped=config["results"] + "plink/split/{dataset}.chr{chr}.ped",
            map=config["results"] + "plink/split/{dataset}.chr{chr}.map"
     output: haps=config["results"] + "haplotypes/split/{dataset}.chr{chr}.shapeit.haps",
-            sample=config["results"] + "haplotypes/split/{dataset}.chr{chr}.shapeit.sample"
-    params: effective_size = config["population"]["effective_size"]
+            sample=config["results"] + "haplotypes/split/{dataset}.chr{chr}.shapeit.sample",
+            graph=config["results"] + "haplotypes/split/{dataset}.chr{chr}.graph"
+    params: effective_size = config["population"]["effective_size"],
+            window_size = 5  # A slightly larger than default window size when there are large amounts of similarity between samples.
     threads: 24
+    # --rho replaces --input-map when no map is available
     shell: "shapeit \
                 --input-ped {input.ped} {input.map} \
+                --rho \
+                --duohmm \
+                -W {params.window_size} \
                 --output-max {output.haps} {output.sample} \
-                --efective-size {params.effective_size} \
+                --output-graph {output.graph} \
+                --effective-size {params.effective_size} \
                 --thread {threads}"
 
 rule prephasing:

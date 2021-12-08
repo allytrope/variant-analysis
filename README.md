@@ -1,18 +1,21 @@
 ## Dependencies
 
-To use all available tools, the following needs to be installed and accessible through `$PATH`:
-* `admixture`
-* `bwa`
-* `conda`
-* `gatk`
-* `impute2`
-* `lcMLkin`
+`conda` is a package manager that can install many of the tools for this program.
+Once installed, `conda install`:
 * `mamba`
-* `plink`
-* `shapeit`
 * `snakemake`
 
-The method used for testing this program involved installing `conda` and creating a conda environment containing `bwa`, `mamba`, and `snakemake`. To receive the most up-to-date version of `gatk`, download the release from the [GitHub GATK page](https://github.com/broadinstitute/gatk/releases). GATK dependecies will be installed automatically in their own environment when run at `/workflow/envs/gatk.yaml`. Other programs can be installed using their corresponding download instructions. For example,`lcMLkin` can be cloned from the [GitHub page](https://github.com/COMBINE-lab/maximum-likelihood-relatedness-estimation).
+Depending on which part of the workflow the workflow is being used, the following may need to be installed as well and must be accessible through `$PATH`:
+* `admixture`
+* `bwa`
+* `gatk`
+* `gtool`
+* `impute2`
+* `lcMLkin`
+* `plink`
+* `shapeit`
+
+To receive the most up-to-date version of `gatk`, download the release from the [GitHub GATK page](https://github.com/broadinstitute/gatk/releases). GATK's own dependecies will be installed automatically in their own environment when needed at `/workflow/envs/gatk.yaml`. Some of these other tools can be installed through `conda`. Those that aren't available can be installed using their corresponding download instructions. For example,`lcMLkin` can be cloned from the [GitHub page](https://github.com/COMBINE-lab/maximum-likelihood-relatedness-estimation). 
 
 
 ## Configuration
