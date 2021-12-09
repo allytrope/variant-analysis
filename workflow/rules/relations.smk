@@ -16,6 +16,9 @@ rule estimate_relatedness_lcmlkin:
                 -u {input.founders} \
                 -t {threads}"
 
+# --------------
+# Unsupervised admixture
+
 rule create_plink_files:
     """Create PLINK .ped and .map files."""
     input: vcf=config["lcmlkin"]["vcf"]
@@ -61,19 +64,28 @@ rule admixture:
             mv {wildcards.dataset}_recode12.{wildcards.clusters}.Q {output.q}; \
             mv {wildcards.dataset}_recode12.{wildcards.clusters}.P {output.p}"
 
-#------------------
-#Supervised admixture
+rule create_unsupervised_ancestry_tsv:
+    """Remove added knowns from .Q and add sample IDs. This makes a more human-readable version of .Q."""
+    input: ped=config["results"] + "plink/recode12/{dataset}_recode12.ped",
+           q=config["results"] + "admixture/unsupervised/{dataset}.{clusters}.Q",
+    output: ancestries=config["results"] + "admixture/unsupervised/{dataset}.{clusters}.admixture.tsv"
+    # `echo` adds header line
+    # `sed` replaces spaces with tabs as delimiter.
+    # `cut` takes first second column of .ped
+    # `paste` combines the outputs of `sed` and `cut`
+    # `head` removes known truth lines from end of file
 
-# Under development
-'''
-rule create_pop:
-    """Create admixture .pop file."""
-    output: config["results"] + "plink/{dataset}.pop"
-    shell: "ls"
-'''
+    # GENERALIZE HEADER CREATION in `echo` command
+    # GENERALIZE REMOVAL OF KNOWN TRUTH LINES in `head` command
+    shell: "echo -e 'sample_id\tCluster_1\tCluster_2' > {output}; \
+            TMP=delimited.tmp; \
+            sed 's/ /\t/g' {input.q} > $TMP; \
+            cut {input.ped} -d ' ' -f 2 \
+            | paste - $TMP >> {output}; \
+            rm $TMP;"
 
-#rule merge_vcfs:
-#    """Merge .vcf of unknown ancestry and .vcf of known ancestry."""
+# ---------------
+# Supervised admixture
 
 rule supervised_admixture:
     """Cluster samples by ancestry in supervised manner.
@@ -91,3 +103,40 @@ rule supervised_admixture:
                 -j{threads} \
             mv {wildcards.dataset}.{wildcards.clusters}.Q {output.q}; \
             mv {wildcards.dataset}.{wildcards.clusters}.P {output.p}"
+
+rule bed_to_ped:
+    """Convert PLINK's binary .bed into nonbinary .ped."""
+    input: bed=config["results"] + "admixture/supervised/plink/{dataset}.bed",
+           bim=config["results"] + "admixture/supervised/plink/{dataset}.bim",
+           fam=config["results"] + "admixture/supervised/plink/{dataset}.fam"
+    output: 
+           ped=config["results"] + "admixture/supervised/plink/{dataset}.ped",
+           map=config["results"] + "admixture/supervised/plink/{dataset}.map"
+    shell: "plink \
+                --bfile " + config["results"] + "admixture/supervised/plink/{wildcards.dataset} \
+                --recode \
+                --out " + config["results"] + "admixture/supervised/plink/{wildcards.dataset}"
+
+rule create_supervised_ancestry_tsv:
+    """Remove added knowns from .Q and add sample IDs. This makes a more human-readable version of .Q."""
+    input: ped=config["results"] + "admixture/supervised/plink/{dataset}.ped",
+           q=config["results"] + "admixture/supervised/{dataset}.{clusters}.Q",
+           population=config["results"] + "admixture/supervised/plink/{dataset}.pop"
+    output: ancestries=config["results"] + "admixture/supervised/{dataset}.{clusters}.admixture.tsv"
+    # `echo` adds header line
+    # `sed` replaces spaces with tabs as delimiter.
+    # `cut` takes first second column of .ped
+    # `paste` combines the outputs of `sed` and `cut`
+    # `head` removes known truth lines from end of file
+
+    # GENERALIZE HEADER CREATION in `echo` command
+    # GENERALIZE REMOVAL OF KNOWN TRUTH LINES in `head` command
+    shell: "echo -e 'Sample_id\tIndian\tChinese' > {output}; \
+            TMP=delimited.tmp; \
+            TMP2=pasted.tmp; \
+            sed 's/ /\t/g' {input.q} > $TMP; \
+            cut {input.ped} -d ' ' -f 2 \
+            | paste - $TMP >> $TMP2; \
+            head -n 674 $TMP2 >> {output}; \
+            rm $TMP; rm $TMP2"
+
