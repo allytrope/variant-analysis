@@ -95,6 +95,7 @@ rule sort_reads:
     """Sort reads in .bam file."""
     input: config["results"] + "alignments_rg/{sample}.bam"
     output: config["results"] + "alignments_sorted/{sample}.bam"
+    threads: 12
     conda: "../envs/gatk.yaml"
     shell: "gatk SortSam \
                 -I {input} \
@@ -103,6 +104,7 @@ rule sort_reads:
                 --TMP_DIR ~/tmp/{rule}"
 
 # Post-alignment cleanup
+# Sometimes gives errors on cluster. But on repeat by themselves (still on cluster), process follows through.
 rule mark_duplicates:
     """Mark duplicates with decimal value 1024."""
     input: config["results"] + "alignments_sorted/{sample}.bam"
@@ -110,7 +112,8 @@ rule mark_duplicates:
             metrics=config["results"] + "alignments_marked/{sample}.marked_dup.metrics.txt"
     # Must lower if receive an error about "too many open files". Conversely, can be increased if system allows.
     # To test system capabilites, use `ulimit -a` and look find "open files"
-    params: max_open_files=2400  
+    params: max_open_files=2400
+    threads: 12
     conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' MarkDuplicates \
                 -I {input} \
@@ -119,12 +122,36 @@ rule mark_duplicates:
                 --MAX_FILE_HANDLES_FOR_READ_ENDS_MAP {params.max_open_files} \
                 --TMP_DIR ~/tmp/{rule}"
 
+rule chrom_remapping:
+    """Change names of contigs in .vcf according to given mapping.
+    For example, can be used to change project contig ids to those of RefSeq.
+    Or to change be between form {1, 2, 3,...} and {chr1, chr2, chr3,...}."""
+    input: vcf = config["vcf"],
+           map=config["map"]
+    output: config["results"] + "ref/ref_vcf_remapped.vcf.gz"
+    threads: 12
+    shell: "bcftools annotate {input.vcf} \
+                --rename-chrs {input.map} \
+                -o {output} \
+                -Oz"
+
+rule index_vcf:
+    """Create and index for .vcf file."""
+    input: vcf=config["results"] + "ref/ref_vcf_remapped.vcf.gz"
+    output: config["results"] + "ref/ref_vcf_remapped.vcf.gz.tbi"
+    threads: 12
+    conda: "../envs/gatk.yaml"
+    shell: "gatk IndexFeatureFile \
+            -I {input}"
+
 rule base_recalibration:
     """Create recalibration table for correcting systemic error in base quality scores."""
     input: ref=config["results"] + "ref/ref_genome.fna.gz",
            bam=config["results"] + "alignments_marked/{sample}.bam",
-           known_variants=config["vcf"]
+           known_variants=config["results"] + "ref/ref_vcf_remapped.vcf.gz",
+           indexed_known_variants=config["results"] + "ref/ref_vcf_remapped.vcf.gz.tbi"
     output: config["results"] + "BQSR/{sample}.BQSR.recal"
+    threads: 12
     conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' BaseRecalibrator \
                 -R {input.ref} \
@@ -138,7 +165,7 @@ rule apply_base_recalibration:
     input: ref=config["results"] + "ref/ref_genome.fna.gz",
            bam=config["results"] + "alignments_marked/{sample}.bam",
            recal=config["results"] + "BQSR/{sample}.BQSR.recal"
-    output: config["results"] + "cleaned_bam/{sample}.bam"
+    output: config["results"] + "alignments_recalibrated/{sample}.bam"
     conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' ApplyBQSR \
                 -R {input.ref} \
@@ -150,8 +177,9 @@ rule apply_base_recalibration:
 rule call_variants:
     """Call variants to make VCF file."""
     input: ref=config["results"] + "ref/ref_genome.fna.gz",
-           bam=config["results"] + "cleaned_bam/{sample}.bam"
+           bam=config["results"] + "alignments_recalibrated/{sample}.bam"
     output: config["results"] + "vcf/{sample}.g.vcf.gz"
+    threads: 12
     conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' HaplotypeCaller \
                 -R {input.ref} \
@@ -225,4 +253,16 @@ rule apply_variant_recalibration:
                 -O {output} \
                 --recal-file {input.recal} \
                 --tranches-file {input.tranches}"
-                
+
+# CHANGE TO WORK FOR MMUL_10 DATA
+rule snp_summary:
+    """Gives a summary of SNP data from .vcf file."""
+    input: vcf=config["results"] + "joint-call/recalibrated_joint-call.vcf.gz"
+    output: config["results"] + "joint-call/snp_summary.txt"
+    shell: "vep \
+    --custom /home/flow/ensembl-vep/Mmul_8.0.1.92.chr.gff3.gz,,gff \
+    --fasta Mmul_8.0.1.chromosome.fa \
+    --gff /home/flow/ensembl-vep/Mmul_8.0.1.92.chr.gff3.gz \
+    --input_file {input.vcf} \
+    --output_file {output} \
+    --stats_text "
