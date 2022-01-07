@@ -122,7 +122,7 @@ rule mark_duplicates:
                 --MAX_FILE_HANDLES_FOR_READ_ENDS_MAP {params.max_open_files} \
                 --TMP_DIR ~/tmp/{rule}"
 
-rule chrom_remapping:
+rule contig_remapping:
     """Change names of contigs in .vcf according to given mapping.
     For example, can be used to change project contig ids to those of RefSeq.
     Or to change be between form {1, 2, 3,...} and {chr1, chr2, chr3,...}."""
@@ -166,6 +166,7 @@ rule apply_base_recalibration:
            bam=config["results"] + "alignments_marked/{sample}.bam",
            recal=config["results"] + "BQSR/{sample}.BQSR.recal"
     output: config["results"] + "alignments_recalibrated/{sample}.bam"
+    threads: 12
     conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' ApplyBQSR \
                 -R {input.ref} \
@@ -187,33 +188,69 @@ rule call_variants:
                 -O {output} \
                 -ERC GVCF"
 
+# Consolidation of GVCFs
 rule create_sample_map:
     """Create sample map that contains names and paths to all VCFs to be used in consolidate rule."""
     input: expand("{results}vcf/{sample}.g.vcf.gz", results=config["results"], sample=SAMPLE_NAMES)
-    output: config["results"] + "/cohort.sample_map"
+    output: sample_map=config["results"] + "ref/cohort.sample_map"
     run:
         import os
-        with open("cohort.sample_map", "w") as out:
+        with open(output.sample_map, "w") as out:
             for path, sample in FULL_SAMPLE_PATHS:
                 string = sample + "\t" + config["results"] + "vcf/" + sample + ".g.vcf.gz" + "\n"
                 out.write(string)
 
-# Consolidation of GVCFs
-rule consolidate:
+rule find_placed_contigs:
+    """Find all contigs from reference that start with 'NC_'.
+    This is the RefSeq designation for placed contigs (chromosomes + mitochodrion).
+    If chromosomes use a different naming system, change or remove the `grep` command."""
+    input: config["results"] + "ref/ref_genome.fna.gz"
+    output: config["results"] + "ref/placed_contigs.list"
+    shell: "samtools view {input} | cut -f 1 | grep '^NC_' > {output}"
+
+rule consolidate: # FINISH
+    """Combine .g.vcf files into GenomicsDB datastore."""
+    input: contigs=config["results"] + "ref/placed_contigs.list",
+           sample_map=config["results"] + "ref/cohort.sample_map",
+           gvcfs=expand("{results}vcf/{sample}.g.vcf.gz", results=config["results"], sample=SAMPLE_NAMES)
+    output: config["results"] + "db/created_test_workspace.txt"
+    threads: 12
+    conda: "../envs/gatk.yaml"
+    params: db=config["results"] + "db/test_workspace"
+    shell:  """
+            CONTIGS=$(awk '{{ORS = ","}} {{print $0}}' {input.contigs}); \
+            if [ -d {params.db} ]; \
+            then WORKSPACE_FLAG="genomicsdb-update-workspace-path"; \
+            else WORKSPACE_FLAG="genomicsdb-workspace-path"; \
+            fi; \
+            gatk --java-options '-Xmx8g' GenomicsDBImport \
+                --$WORKSPACE_FLAG {params.db} \
+                --intervals {input.contigs} \
+                --sample-name-map {input.sample_map} \
+                --batch-size 50 \
+                --genomicsdb-shared-posixfs-optimizations true; \
+            touch {output}
+            """
+
+'''
+rule consolidate: # FINISH
     """Combines GVCFs into GenomicsDB (a datastore)."""
-    input: expand("{results}{sample}.g.vcf", results=config["results"], sample=SAMPLE_NAMES), config["results"] + "cohort.sample_map"
+    input: expand("{results}{sample}.g.vcf", results=config["results"], sample=SAMPLE_NAMES),
+           sample_map=config["results"] + "cohort.sample_map"
     output: config["results"] + "db/genomicsdb"
     conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' GenomicsDBImport \
-                --sample-name-map cohort.sample_map \
-                --genomicsdb-workspace-path db \
+                --sample-name-map {input.sample_map} \
+                --batch-size 50 \
                 --genomicsdb-update-workspace-path db"
+'''
 
 rule joint_call_cohort:
     """Use GenomicsDB to jointly call a VCF file."""
     input: ref=config["results"] + "ref/ref_genome.fna.gz",
            db=config["results"] + "db"
     output: config["results"] + "joint-call/joint-call.vcf.gz"
+    threads: 12
     conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' GenotypeGVCFs \
                 -R {input.ref} \
@@ -229,6 +266,7 @@ rule calls_recalibration:
            training=config["VQSR"]["training_vcf"]
     output: recal=config["results"] + "VQSR/VQSR.recal",
             tranches=config["results"] + "VQSR/output.tranches"
+    threads: 12
     conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' VariantRecalibrator \
                 -R {input.ref} \
@@ -246,6 +284,7 @@ rule apply_variant_recalibration:
            recal=config["results"] + "VQSR/VQSR.recal",
            tranches=config["results"] + "VQSR/output.tranches"
     output: config["results"] + "joint-call/recalibrated_joint-call.vcf.gz"
+    threads: 12
     conda: "../envs/gatk.yaml"
     shell: "gatk --java-options 'Xmx8g' ApplyVQSR \
                 -R {input.ref} \
