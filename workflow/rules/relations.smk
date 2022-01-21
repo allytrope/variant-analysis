@@ -6,7 +6,7 @@ rule estimate_relatedness_lcmlkin:
     """Estimate relatedness between individuals using maximum likelihood."""
     input: vcf=config["lcmlkin"]["vcf"],
            founders=config["lcmlkin"]["founders"]
-    output: config["results"] + "relatedness/recalibrated_joint-call.relate"
+    output: config["results"] + "relatedness/recalibrated_joint_call.relate"
     threads: 8  # max of 8
     shell: "lcmlkin \
                 -i {input.vcf} \
@@ -50,6 +50,7 @@ rule admixture:
             p=config["results"] + "admixture/unsupervised/{dataset}.{clusters}.P",
             out=config["results"] + "admixture/unsupervised/{dataset}.{clusters}.out"
     threads: 24
+    conda: "../envs/bio.yaml"
     shell: "admixture {input.ped} {wildcards.clusters} \
                 -j{threads} \
                 --cv | tee {output.out}; \
@@ -94,12 +95,12 @@ rule create_binary_plink_files:
     output: bed=config["results"] + "admixture/supervised/plink/{sample}.bed",
             bim=config["results"] + "admixture/supervised/plink/{sample}.bim",
             fam=config["results"] + "admixture/supervised/plink/{sample}.fam"
+    conda: "../envs/bio.yaml"
     shell: "plink \
                 --vcf {input.vcf} \
                 --recode12 \
                 --make-bed \
                 --out {config[results]}admixture/supervised/plink/{wildcards.sample}"
-
 
 rule supervised_admixture:
     """Cluster samples by ancestry in supervised manner.
@@ -112,6 +113,7 @@ rule supervised_admixture:
     output: q=config["results"] + "admixture/supervised/{dataset}.{clusters}.Q",
             p=config["results"] + "admixture/supervised/{dataset}.{clusters}.P",
     threads: 24
+    conda: "../envs/bio.yaml"
     shell: "admixture {input.bed} {wildcards.clusters} \
                 --supervised \
                 -j{threads}; \
@@ -126,6 +128,7 @@ rule bed_to_ped:
     output: 
            ped=config["results"] + "admixture/supervised/plink/{dataset}.ped",
            map=config["results"] + "admixture/supervised/plink/{dataset}.map"
+    conda: "../envs/bio.yaml"
     shell: "plink \
                 --bfile " + config["results"] + "admixture/supervised/plink/{wildcards.dataset} \
                 --recode \

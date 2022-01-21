@@ -10,6 +10,7 @@ if config["data"]:
 else:
     FULL_SAMPLE_PATHS = SAMPLE_PATHS = SAMPLE_NAMES = []
 
+
 # Prepare reference genome
 rule download_ref:
     """Download reference genome."""
@@ -26,6 +27,7 @@ rule index_ref:
     """Create BWA index files for reference genome."""
     input: config["results"] + "ref/ref_genome.fna.gz"
     output: multiext(config["results"] + "ref/ref_genome.fna.gz", ".amb", ".ann", ".bwt", ".pac", ".sa")
+    conda: "../envs/bio.yaml"
     shell: "bwa index {input}"
 
 rule index_ref_fai:
@@ -33,6 +35,7 @@ rule index_ref_fai:
     # Requires bgzipped reference
     input: config["results"] + "ref/ref_genome.fna.gz"
     output: config["results"] + "ref/ref_genome.fna.gz" + ".fai"
+    conda: "../envs/bio.yaml"
     shell: "samtools fqidx {input}"
 
 rule create_ref_dict:
@@ -57,8 +60,25 @@ rule align:
            read_2=lambda wildcards: sample_path("{sample}".format(sample=wildcards.sample)) + "{sample}.R2.fastq.gz"
     output: config["results"] + "alignments/{sample}.bam"
     threads: 24
+    conda: "../envs/bio.yaml"
     shell: "bwa mem -t {threads} {input.ref} {input.read_1} {input.read_2} | \
             samtools view -Sb - > {output}"
+
+'''
+rule align_with_rg:
+    """Align .fastq sequence to reference genome."""
+    input: ref=config["results"] + "ref/ref_genome.fna.gz",
+           idxs=multiext(config["results"] + "ref/ref_genome.fna.gz", ".amb", ".ann", ".bwt", ".pac", ".sa"),
+           read_1=lambda wildcards: sample_path("{sample}".format(sample=wildcards.sample)) + "{sample}.R1.fastq.gz",
+           read_2=lambda wildcards: sample_path("{sample}".format(sample=wildcards.sample)) + "{sample}.R2.fastq.gz"
+    output: config["results"] + "alignments/{sample}.bam"
+    threads: 24
+    conda: "../envs/bio.yaml"
+    shell: "bwa mem {input.ref} {input.read_1} {input.read_2} \
+                -t {threads} \
+                -R '' | \
+            samtools view -Sb - > {output}"
+'''
 
 def find_read_group_info(sample):
     """Find corresponding .fastq file from sample name. For Casava 1.8 Illumina header implementation."""
@@ -80,6 +100,7 @@ rule add_read_groups:
     input: config["results"] + "alignments/{sample}.bam"
     output: config["results"] + "alignments_rg/{sample}.bam"
     params: header_rg = lambda wildcards: find_read_group_info("{sample}".format(sample=wildcards.sample))
+    threads: 1
     conda: "../envs/gatk.yaml"
     shell: "gatk AddOrReplaceReadGroups \
       -I {input} \
@@ -95,7 +116,7 @@ rule sort_reads:
     """Sort reads in .bam file."""
     input: config["results"] + "alignments_rg/{sample}.bam"
     output: config["results"] + "alignments_sorted/{sample}.bam"
-    threads: 12
+    threads: 1
     conda: "../envs/gatk.yaml"
     shell: "gatk SortSam \
                 -I {input} \
@@ -113,7 +134,7 @@ rule mark_duplicates:
     # Must lower if receive an error about "too many open files". Conversely, can be increased if system allows.
     # To test system capabilites, use `ulimit -a` and look find "open files"
     params: max_open_files=2400
-    threads: 12
+    threads: 1
     conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' MarkDuplicates \
                 -I {input} \
@@ -129,7 +150,8 @@ rule contig_remapping:
     input: vcf = config["vcf"],
            map=config["map"]
     output: config["results"] + "ref/ref_vcf_remapped.vcf.gz"
-    threads: 12
+    threads: 1
+    conda: "../envs/bio.yaml"
     shell: "bcftools annotate {input.vcf} \
                 --rename-chrs {input.map} \
                 -o {output} \
@@ -139,7 +161,7 @@ rule index_vcf:
     """Create and index for .vcf file."""
     input: vcf=config["results"] + "ref/ref_vcf_remapped.vcf.gz"
     output: config["results"] + "ref/ref_vcf_remapped.vcf.gz.tbi"
-    threads: 12
+    threads: 1
     conda: "../envs/gatk.yaml"
     shell: "gatk IndexFeatureFile \
             -I {input}"
@@ -151,7 +173,7 @@ rule base_recalibration:
            known_variants=config["results"] + "ref/ref_vcf_remapped.vcf.gz",
            indexed_known_variants=config["results"] + "ref/ref_vcf_remapped.vcf.gz.tbi"
     output: config["results"] + "BQSR/{sample}.BQSR.recal"
-    threads: 12
+    threads: 1
     conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' BaseRecalibrator \
                 -R {input.ref} \
@@ -166,7 +188,7 @@ rule apply_base_recalibration:
            bam=config["results"] + "alignments_marked/{sample}.bam",
            recal=config["results"] + "BQSR/{sample}.BQSR.recal"
     output: config["results"] + "alignments_recalibrated/{sample}.bam"
-    threads: 12
+    threads: 1
     conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' ApplyBQSR \
                 -R {input.ref} \
@@ -180,18 +202,20 @@ rule call_variants:
     input: ref=config["results"] + "ref/ref_genome.fna.gz",
            bam=config["results"] + "alignments_recalibrated/{sample}.bam"
     output: config["results"] + "vcf/{sample}.g.vcf.gz"
-    threads: 12
     conda: "../envs/gatk.yaml"
-    shell: "gatk --java-options '-Xmx8g' HaplotypeCaller \
+    threads: 24  # 4 is default used by `--native-pair-hmm-threads`
+    shell: "gatk --java-options '-Xmx16g' HaplotypeCaller \
                 -R {input.ref} \
                 -I {input.bam} \
                 -O {output} \
-                -ERC GVCF"
+                -ERC GVCF \
+                --native-pair-hmm-threads {threads}"
 
 # Consolidation of GVCFs
 rule create_sample_map:
-    """Create sample map that contains names and paths to all VCFs to be used in consolidate rule."""
-    input: expand("{results}vcf/{sample}.g.vcf.gz", results=config["results"], sample=SAMPLE_NAMES)
+    """Create sample map that contains names and paths to all VCFs to be used in consolidate rule.
+    Note: This output file will need to be deleted if changing what will be added in the consolidate rule."""
+    input: gvcfs=expand("{results}vcf/{sample}.g.vcf.gz", results=config["results"], sample=SAMPLE_NAMES)
     output: sample_map=config["results"] + "ref/cohort.sample_map"
     run:
         import os
@@ -206,19 +230,21 @@ rule find_placed_contigs:
     If chromosomes use a different naming system, change or remove the `grep` command."""
     input: config["results"] + "ref/ref_genome.fna.gz"
     output: config["results"] + "ref/placed_contigs.list"
+    threads: 1
+    conda: "../envs/bio.yaml"
     shell: "samtools view {input} | cut -f 1 | grep '^NC_' > {output}"
 
-rule consolidate: # FINISH
-    """Combine .g.vcf files into GenomicsDB datastore."""
+rule consolidate:
+    """Combine the placed_contigs of .g.vcf files into GenomicsDB datastore."""
     input: contigs=config["results"] + "ref/placed_contigs.list",
            sample_map=config["results"] + "ref/cohort.sample_map",
-           gvcfs=expand("{results}vcf/{sample}.g.vcf.gz", results=config["results"], sample=SAMPLE_NAMES)
-    output: config["results"] + "db/created_test_workspace.txt"
-    threads: 12
+           #gvcfs=expand("{results}vcf/{sample}.g.vcf.gz", results=config["results"], sample=SAMPLE_NAMES)
+    output: config["results"] + "db/created_{workspace}.txt"
+    params: db=config["results"] + "db/{workspace}"
+    threads: 1
     conda: "../envs/gatk.yaml"
-    params: db=config["results"] + "db/test_workspace"
     shell:  """
-            CONTIGS=$(awk '{{ORS = ","}} {{print $0}}' {input.contigs}); \
+            CONTIGS=$(awk 'BEGIN {{ORS = ","}} {{print $0}}' {input.contigs}); \
             if [ -d {params.db} ]; \
             then WORKSPACE_FLAG="genomicsdb-update-workspace-path"; \
             else WORKSPACE_FLAG="genomicsdb-workspace-path"; \
@@ -232,25 +258,12 @@ rule consolidate: # FINISH
             touch {output}
             """
 
-'''
-rule consolidate: # FINISH
-    """Combines GVCFs into GenomicsDB (a datastore)."""
-    input: expand("{results}{sample}.g.vcf", results=config["results"], sample=SAMPLE_NAMES),
-           sample_map=config["results"] + "cohort.sample_map"
-    output: config["results"] + "db/genomicsdb"
-    conda: "../envs/gatk.yaml"
-    shell: "gatk --java-options '-Xmx8g' GenomicsDBImport \
-                --sample-name-map {input.sample_map} \
-                --batch-size 50 \
-                --genomicsdb-update-workspace-path db"
-'''
-
 rule joint_call_cohort:
     """Use GenomicsDB to jointly call a VCF file."""
     input: ref=config["results"] + "ref/ref_genome.fna.gz",
-           db=config["results"] + "db"
-    output: config["results"] + "joint-call/joint-call.vcf.gz"
-    threads: 12
+           db=config["results"] + "db/{workspace}"
+    output: config["results"] + "joint_call/{workspace}.vcf.gz"
+    threads: 1
     conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' GenotypeGVCFs \
                 -R {input.ref} \
@@ -261,12 +274,12 @@ rule joint_call_cohort:
 rule calls_recalibration:
     """Build a recalibration model."""
     input: ref=config["results"] + "ref/ref_genome.fna.gz",
-           vcf=config["results"] + "joint-call/joint-call.vcf.gz",
+           vcf=config["results"] + "joint_call/{workspace}.vcf.gz",
            truth=config["VQSR"]["truth_vcf"],
            training=config["VQSR"]["training_vcf"]
-    output: recal=config["results"] + "VQSR/VQSR.recal",
-            tranches=config["results"] + "VQSR/output.tranches"
-    threads: 12
+    output: recal=config["results"] + "VQSR/{workspace}.recal",
+            tranches=config["results"] + "VQSR/{workspace}.tranches"
+    threads: 1
     conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' VariantRecalibrator \
                 -R {input.ref} \
@@ -280,11 +293,11 @@ rule calls_recalibration:
 rule apply_variant_recalibration:
     """Apply recalibration model."""
     input: ref=config["results"] + "ref/ref_genome.fna.gz",
-           vcf=config["results"] + "joint-call/joint-call.vcf.gz",
-           recal=config["results"] + "VQSR/VQSR.recal",
-           tranches=config["results"] + "VQSR/output.tranches"
-    output: config["results"] + "joint-call/recalibrated_joint-call.vcf.gz"
-    threads: 12
+           vcf=config["results"] + "joint_call/{workspace}.vcf.gz",
+           recal=config["results"] + "VQSR/{workspace}.recal",
+           tranches=config["results"] + "VQSR/{workspace}.tranches"
+    output: config["results"] + "joint_call/{workspace}_recalibrated.vcf.gz"
+    threads: 1
     conda: "../envs/gatk.yaml"
     shell: "gatk --java-options 'Xmx8g' ApplyVQSR \
                 -R {input.ref} \
@@ -294,10 +307,11 @@ rule apply_variant_recalibration:
                 --tranches-file {input.tranches}"
 
 # CHANGE TO WORK FOR MMUL_10 DATA
+'''
 rule snp_summary:
     """Gives a summary of SNP data from .vcf file."""
-    input: vcf=config["results"] + "joint-call/recalibrated_joint-call.vcf.gz"
-    output: config["results"] + "joint-call/snp_summary.txt"
+    input: vcf=config["results"] + "joint_call/recalibrated_joint_call.vcf.gz"
+    output: config["results"] + "joint_call/snp_summary.txt"
     shell: "vep \
     --custom /home/flow/ensembl-vep/Mmul_8.0.1.92.chr.gff3.gz,,gff \
     --fasta Mmul_8.0.1.chromosome.fa \
@@ -305,3 +319,24 @@ rule snp_summary:
     --input_file {input.vcf} \
     --output_file {output} \
     --stats_text "
+'''
+
+# Download cache for species of interest first
+rule snp_summary:
+    """Gives a summary of SNP data from .vcf file."""
+    input: vcf=config["results"] + "joint_call/{workspace}_recalibrated.vcf.gz",
+           ref=config["results"] + "ref/ref_genome.fna.gz",
+    output: txt=config["results"] + "joint_call/{workspace}_snp_summary.txt",
+            html=config["results"] + "joint_call/{workspace}_snp_summary.html",
+            warnings=config["results"] + "joint_call/{workspace}_snp_summary_warnings.txt"
+    params: species=config["ref"]["species"]
+    threads: 1
+    conda: "../envs/bio.yaml"
+    shell: "vep \
+    --input_file {input.vcf} \
+    --fasta {input.ref} \
+    --output_file {output.txt} \
+    --stats_text {output.html} \
+    --warning_file {output.warnings} \
+    --species {params.species} \
+    --cache"

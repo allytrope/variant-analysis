@@ -2,20 +2,20 @@
 ref:
   # If reference genome isn't downloaded, change to appropriate address to download
   address: ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Macaca_mulatta/latest_assembly_versions/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_genomic.fna.gz
-  # Path to reference genome
+  species: macaca_mulatta
+
+# Project directories to deposit output files
+results: results/Mmul_10/
+log: log/Mmul_10/
 
 # Path to VCF for base_recalibration step
 vcf: results/Mmul_10/ref/Mmul_10.vcf.gz
+map: results/Mmul_10/ref/remapping.tsv
 
 VQSR:
-  # Path to VCFs for truth and training data for VQSR
+  # VCFs for truth and training data for VQSR
   truth_vcf: results/Mmul_10/ref/mult_obs_Mmul_10.vcf.gz
   training_vcf: results/Mmul_10/ref/sing_obs_Mmul_10.vcf.gz
-
-# Path to deposit output files
-results: results/Mmul_10/
-
-log: log/Mmul_10/
 
 lcmlkin:
   # .txt file of founders
@@ -23,11 +23,16 @@ lcmlkin:
   vcf: ''
 
 plink:
+  # PEDSYS-generated pedigree
   pedigree: ''
+
+admixture:
+  # Must have same name before .pop suffix as other PLINK input files to supervised admixture
+  pop: ''
 
 population:
   map: ''
-  effective_size: 
+  effective_size: 80000
 
 # Path to each input FASTQ file
 data:

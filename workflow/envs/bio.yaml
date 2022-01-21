@@ -1,0 +1,15 @@
+# Conda environment for non-GATK tools
+
+name: bio
+channels:
+- bioconda
+- conda-forge
+- defaults
+
+dependencies:
+- bioconda::admixture=1.3.0
+- bioconda::bcftools=1.3.1
+- bioconda::bwa=0.7.17
+- bioconda::impute2=2.3.2
+- bioconda::plink=1.90b6.21
+- bioconda::samtools=1.14
