@@ -5,19 +5,13 @@ Once installed, `conda install`:
 * `mamba`
 * `snakemake`
 
-Depending on which part of the workflow the workflow is being used, the following may need to be installed as well and must be accessible through `$PATH`:
-* `admixture`
-* `bcftools`
-* `bwa`
-* `gatk`
+Depending on which part of the workflow is being used, the following may need to be installed as well and must be accessible through `$PATH`:
 * `gtool`
-* `impute2`
 * `lcMLkin`
-* `plink`
 * `shapeit`
-* `vcftools`
 
-To receive the most up-to-date version of `gatk`, download the release from the [GitHub GATK page](https://github.com/broadinstitute/gatk/releases). GATK's own dependecies will be installed automatically in their own environment when needed at `/workflow/envs/gatk.yaml`. Some of these other tools can be installed through `conda`. Those that aren't available can be installed using their corresponding download instructions. For example,`lcMLkin` can be cloned from the [GitHub page](https://github.com/COMBINE-lab/maximum-likelihood-relatedness-estimation). 
+The other necessary libraries have packages and versions stored in `workflow/envs`. These will be installed automatically when run using conda.
+Those that aren't available in conda (those listed above) must be installed using their corresponding download instructions. For example,`lcMLkin` can be cloned from the [GitHub page](https://github.com/COMBINE-lab/maximum-likelihood-relatedness-estimation). 
 
 
 ## Configuration
@@ -26,7 +20,7 @@ Configuration settings are set with a `.yaml` file inside the directory `config`
 
 Initial required files for first steps of variant calling are the following.
 * Reference genome
-* Raw FASTQ files (ending with `.fastq.gz`)
+* Raw FASTQ files (ending with `R1.fastq.gz` and `R2.fastq.gz`)
 
 Many subsequent steps also require their own user-created inputs. These should be specified in the config file.
 
@@ -49,11 +43,11 @@ To actually run the program on a SGE cluster, the following command can be issue
 The integer in `-j 20` will determine the number of jobs submitted at once to the cluster. Hence a higher number will usually finish quicker, but could take up nodes for others who might be using the cluster. `threads` is replaced with the the integer after `threads:` from the corresponding rule. So this can be left alone within the command itself. Set the names for variables `NAME` and `LOG`. `NAME` will be the name given to the SGE and viewable with the `qstat` command. `NAME` also be used for the log files. `LOG` is then the directory in which the log files will be stored. This can be changed as needed to help organize logs.
 
 Besides the generating the files given in the Snakefile's `rule all`, the above command will also generate log files. Check these when errors occur. There are three logs:
-    * `.smk.log` tells what jobs have been submitted, what files each is trying to make, and when jobs have completed.
-    * `.err.log` gives details about the actual jobs themselves. When submitting more than one job at once, this can become cluttered with interleaved messages from different jobs. To better find an error message for a specific job, it might require running only a single job at a time, which can be done by setting `-j 1`.
-    * `.out.log` prints output messages from the jobs. Once again, these will be interleaved. But in general, there is fewer information in the this file and often not as important as the error log.
+* `.smk.log` tells what jobs have been submitted, what files each is trying to make, and when jobs have completed.
+* `.err.log` gives details about the actual jobs themselves. When submitting more than one job at once, this can become cluttered with interleaved messages from different jobs. To better find an error message for a specific job, it might require running only a single job at a time, which can be done by setting `-j 1`.
+* `.out.log` prints output messages from the jobs. Once again, these will be interleaved. But in general, there is fewer information in the this file and often not as important as the error log.
 
 
 ### Local
 
-To perform a command without producing parallel-running jobs, use: `snakemake --use-conda -c2`. The integer in `-c2` refers to the number of threads that this process will use. This can be increased as needed. Since some processes may take a long time, it is suggested that you use `nohup snakemake --use-conda -c2`. With this command, even if a connection is lost, snakemake will continue the command and leave the error log inside a file labelled `nohup.out`. A single snakemake command will only run one job at a time. This means that it will be a slower process than on a cluster; however, this will make log files much cleaner. Often, cluster-run log files will be jumbled or missing sections, making finding the error difficult or sometimes not possible. So if the error can't be found from a cluster run, this approach will help finding the error message.
+Ideally, use the cluster configuration above. Otherwise, to run without producing parallel-running jobs, use: `nohup snakemake --use-conda -c2`. This will leave the error log inside a file in the current directory labelled `nohup.out`.
