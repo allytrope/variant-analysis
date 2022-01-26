@@ -1,28 +1,35 @@
+## Introduction
+
+This project is a snakemake workflow for processing `.fastq.gz` files and downstream analyses. The variant calling is primarily based on the GATK best practices for germline short variant discovery. Later analyses include pairwise relationship estimation and admixture.
+
+
 ## Dependencies
 
 `conda` is a package manager that can install many of the tools for this program.
-Once installed, `conda install`:
-* `mamba`
-* `snakemake`
+Once installed, use the below conda command to obtain the required packages: ```
+conda install -c conda-forge mamba
+conda install -c bioconda snakemake
+```
 
 Depending on which part of the workflow is being used, the following may need to be installed as well and must be accessible through `$PATH`:
 * `gtool`
 * `lcMLkin`
 * `shapeit`
 
-The other necessary libraries have packages and versions stored in `workflow/envs`. These will be installed automatically when run using conda.
-Those that aren't available in conda (those listed above) must be installed using their corresponding download instructions. For example,`lcMLkin` can be cloned from the [GitHub page](https://github.com/COMBINE-lab/maximum-likelihood-relatedness-estimation). 
+These that aren't available in conda and must be installed using their corresponding download instructions. For example,`lcMLkin` can be cloned from the [GitHub page](https://github.com/COMBINE-lab/maximum-likelihood-relatedness-estimation). 
+
+Other necessary libraries have packages and versions stored in `workflow/envs`. These will be installed automatically in their own conda environment when running this snakemake pipeline.
 
 
 ## Configuration
 
-Configuration settings are set with a `.yaml` file inside the directory `config`. Multiple config files can exist for convenient testing with different datasets. The name of the desired config file for a particular run, however, should be set under `configfile:` in `workflow/Snakefile`. The config file should be filled out to include any starting datasets such as `.fastq` files for all individuals to be analyzed and a reference genome for the species. Other steps may require their own additional files as well and these can all be specified here. 
+Configuration settings are set with a `.yaml` file inside the directory `config`. Multiple config files can exist for convenient testing with different datasets. The name of the desired config file for a particular run, however, should be set for `configfile` in `workflow/Snakefile`. The config file should be filled out to include any starting datasets such as `.fastq.gz` files for all individuals to be analyzed and a reference genome for the species.
 
 Initial required files for first steps of variant calling are the following.
 * Reference genome
 * Raw FASTQ files (ending with `R1.fastq.gz` and `R2.fastq.gz`)
 
-Many subsequent steps also require their own user-created inputs. These should be specified in the config file.
+Other subsequent steps may require their own additional user-created files as well, which can all be specified here in the config file.
 
 
 ## Output
@@ -37,10 +44,12 @@ Running `snakemake` directly within the project's main directory on the command 
 
 ### Cluster
 
-To actually run the program on a SGE cluster, the following command can be issued from the project directory:
-`NAME=smk_variant; LOG=log/dirname; nohup snakemake --use-conda --cluster "qsub -V -b n -cwd -pe smp {threads} -N $NAME -o $NAME.out.log -e $NAME.err.log" -j 20` > $LOG/$NAME.smk.log 2>&1
+To actually run the program on an SGE cluster, the following command can be issued from the project directory:
+```
+NAME=smk_variant; LOG=log/dirname; nohup snakemake --use-conda --cluster "qsub -V -b n -cwd -pe smp {threads} -N $NAME -o $NAME.out.log -e $NAME.err.log" -j 20 > $LOG/$NAME.smk.log 2>&1
+```
 
-The integer in `-j 20` will determine the number of jobs submitted at once to the cluster. Hence a higher number will usually finish quicker, but could take up nodes for others who might be using the cluster. `threads` is replaced with the the integer after `threads:` from the corresponding rule. So this can be left alone within the command itself. Set the names for variables `NAME` and `LOG`. `NAME` will be the name given to the SGE and viewable with the `qstat` command. `NAME` also be used for the log files. `LOG` is then the directory in which the log files will be stored. This can be changed as needed to help organize logs.
+The integer in `-j 20` will determine the number of jobs submitted at once to the cluster. Hence a higher number will usually finish quicker, but could take up nodes for others who might be using the cluster. `threads` is replaced with the the integer from the corresponding rule under `threads:` from the corresponding rule. So this can be left alone within the command itself. Set the names for variables `NAME` and `LOG`. `NAME` will be the name given to the SGE and viewable with the `qstat` command. `NAME` also be used for the log files. `LOG` is then the directory in which the log files will be stored. This can be changed as needed to help organize logs.
 
 Besides the generating the files given in the Snakefile's `rule all`, the above command will also generate log files. Check these when errors occur. There are three logs:
 * `.smk.log` tells what jobs have been submitted, what files each is trying to make, and when jobs have completed.
@@ -50,4 +59,4 @@ Besides the generating the files given in the Snakefile's `rule all`, the above 
 
 ### Local
 
-Ideally, use the cluster configuration above. Otherwise, to run without producing parallel-running jobs, use: `nohup snakemake --use-conda -c2`. This will leave the error log inside a file in the current directory labelled `nohup.out`.
+Ideally, use the cluster configuration above. Otherwise, to run locally, use: `nohup snakemake --use-conda -c2`. The integer in `-c2` means that two cores will be used. Most rules list the number of threads used, which can be used here. But unlike the cluster method above, this will need to be manually changed. Higher integers (as long as the system has such) will lead to faster processing. This command will leave the error log inside a file in the current directory labelled `nohup.out`.

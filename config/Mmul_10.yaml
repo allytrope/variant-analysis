@@ -1,12 +1,12 @@
 ---
+# Project directories to deposit output files
+results: results/Mmul_10/
+log: log/Mmul_10/
+
 ref:
   # If reference genome isn't downloaded, change to appropriate address to download
   address: ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Macaca_mulatta/latest_assembly_versions/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_genomic.fna.gz
   species: macaca_mulatta
-
-# Project directories to deposit output files
-results: results/Mmul_10/
-log: log/Mmul_10/
 
 # Path to VCF for base_recalibration step
 vcf: results/Mmul_10/ref/Mmul_10.vcf.gz
@@ -33,6 +33,11 @@ admixture:
 population:
   map: ''
   effective_size: 80000
+
+AIMs:
+  # Frequency below which to not consider as an AIM.
+  # Must be greater than 0.5, perferably as close to 0.9999 while still providing variants.
+  threshold: 0.85
 
 # Path to each input FASTQ file
 data:

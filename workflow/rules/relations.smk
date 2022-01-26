@@ -159,16 +159,44 @@ rule create_supervised_ancestry_tsv:
 
 # Requires some modification depending on data.
 rule graph_admixture:
-       """Graph ancestry of samples."""
-       input: config["results"] + "admixture/supervised/{dataset}.{clusters}.admixture.tsv"
-       output: config["results"] + "admixture/supervised/{dataset}.{clusters}.Q.png"
-       run:
-              import matplotlib.pyplot as plt
-              import pandas as pd
-              import seaborn as sns
+    """Graph ancestry of samples."""
+    input: config["results"] + "admixture/supervised/{dataset}.{clusters}.admixture.tsv"
+    output: config["results"] + "admixture/supervised/{dataset}.{clusters}.Q.png"
+    run:
+        import matplotlib.pyplot as plt
+        import pandas as pd
+        import seaborn as sns
 
-              data = pd.read_table(str(input))
-              sns.set_theme()
-              ax = sns.histplot(data=data, bins=20, multiple="stack")
-              ax.set(title="Ancestral Admixture in SNPRC Rhesus Macaques", xlabel="Ancestry ratio", xlim=(0.5, 1), ylabel="Number of individuals")
-              plt.savefig(str(output))
+        data = pd.read_table(str(input))
+        sns.set_theme()
+        ax = sns.histplot(data=data, bins=20, multiple="stack")
+        ax.set(title="Ancestral Admixture in SNPRC Rhesus Macaques", xlabel="Ancestry ratio", xlim=(0.5, 1), ylabel="Number of individuals")
+        plt.savefig(str(output))
+
+
+rule find_AIMs:
+    """Find ancestry informative markers, variants that can be used to predict ancestry. Uses a threshold value.
+    If say threshold is 0.85, that means, it requires a minimum of 0.85 frequency in one cluster
+    and maximum of 0.15 in others to be considered an AIM. Currently works only when 2 clusters are involved."""
+    input: p=config["results"] + "admixture/supervised/{dataset}.{clusters}.P",
+           map=config["results"] + "admixture/supervised/plink/{dataset}.map"
+    output: config["results"] + "aims/{dataset}.{clusters}.aims"
+    params: lower_threshold = config["AIMs"]["threshold"],  # Frequency below which to not consider as an AIM.
+            upper_threshold = 1 - config["AIMs"]["threshold"]  # Frequency above which to not consider as an AIM.
+    # Select chromosome and position columns from map and combine with .P by row.
+    # Then filter for rows that fulfill the thresholds.
+    shell: "awk '{{print $1,$4}}' {input.map} | paste - {input.p} \
+            | awk '($3 > {params.lower_threshold} && $4 < {params.upper_threshold}) \
+                || ($4 > {params.lower_threshold} && $3 < {params.upper_threshold}) \
+                {{print $0}}' - > {output}"
+
+# Under development
+'''
+rule find_AIMs_based_ancestry:
+    """Determine ancestry of sample based on ancestry informative markers."""
+    input: vcf="",
+           aims=config["results"] + "aims/{dataset}.{clusters}.aims"
+    output: ""
+    shell:
+'''
+
