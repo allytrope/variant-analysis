@@ -6,7 +6,8 @@ This project is a snakemake workflow for processing `.fastq.gz` files and downst
 ## Dependencies
 
 `conda` is a package manager that can install many of the tools for this program.
-Once installed, use the below conda command to obtain the required packages: ```
+Once installed, use the below conda command to obtain the required packages:
+```
 conda install -c conda-forge mamba
 conda install -c bioconda snakemake
 ```
