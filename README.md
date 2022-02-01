@@ -6,7 +6,7 @@ This project is a snakemake workflow for processing `.fastq.gz` files and downst
 ## Dependencies
 
 `conda` is a package manager that can install many of the tools for this program.
-Once installed, use the below conda command to obtain the required packages:
+Once installed, use the below conda commands to obtain the required packages:
 ```
 conda install -c conda-forge mamba
 conda install -c bioconda snakemake
@@ -40,7 +40,7 @@ The output files to be generated (as well as all intermediate files) must be set
 
 ## Running
 
-Running `snakemake` directly within the project's main directory on the command line will initiate the program by calling `workflow/Snakefile`. To perform a "dry-run", you can use the command `snakemake -n`. This will check that the rules are functional without actually processing any data. This is can be helpful to quickly test for any obvious problems with new rules. If an upstream file has been modified after a downstream one, Snakemake tries to redo the pipeline from the modified file. If done accidentally, this will delete downstream files, making the rules between run again. So it is good practice to perform the dry-run before each actual run to make sure important files aren't deleted. If a file was accidentally modified and downstream files don't want to be deleted, use Unix command `touch` on all downstream files in order of their creation. This will update the "last modified" timestamps.
+Running `snakemake` directly within the project's main directory on the command line will initiate the program by calling `workflow/Snakefile`. To perform a "dry-run", you can use the command `snakemake -n`. This will check that the rules are functional without actually processing any data. This is helpful to quickly test for any obvious problems with new rules. If an upstream file has been modified after a downstream one, Snakemake tries to redo the pipeline from the modified file. If done accidentally, this will delete downstream files, making the rules between run again. So it is good practice to perform the dry-run before each actual run to make sure important files aren't deleted. If a file was accidentally modified and downstream files don't want to be deleted, use Unix command `touch` on all downstream files in order of their creation. This will update the "last modified" timestamps.
 
 
 ### Cluster
@@ -57,6 +57,7 @@ Besides the generating the files given in the Snakefile's `rule all`, the above 
 * `.err.log` gives details about the actual jobs themselves. When submitting more than one job at once, this can become cluttered with interleaved messages from different jobs. To better find an error message for a specific job, it might require running only a single job at a time, which can be done by setting `-j 1`.
 * `.out.log` prints output messages from the jobs. Once again, these will be interleaved. But in general, there is fewer information in the this file and often not as important as the error log.
 
+Make sure to create the directories in which the log files will be placed prior to running to avoid errors.
 
 ### Local
 

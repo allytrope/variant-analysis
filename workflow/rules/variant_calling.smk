@@ -201,13 +201,14 @@ rule call_variants:
     """Call variants to make VCF file."""
     input: ref=config["results"] + "ref/ref_genome.fna.gz",
            bam=config["results"] + "alignments_recalibrated/{sample}.bam"
-    output: config["results"] + "vcf/{sample}.g.vcf.gz"
+    output: vcf=config["results"] + "vcf/{sample}.g.vcf.gz",
+            tbi=config["results"] + "vcf/{sample}.g.vcf.gz.tbi"  # Index file
     conda: "../envs/gatk.yaml"
     threads: 24  # 4 is default used by `--native-pair-hmm-threads`
     shell: "gatk --java-options '-Xmx16g' HaplotypeCaller \
                 -R {input.ref} \
                 -I {input.bam} \
-                -O {output} \
+                -O {output.vcf} \
                 -ERC GVCF \
                 --native-pair-hmm-threads {threads}"
 

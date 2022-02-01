@@ -1,5 +1,6 @@
 ---
 # Project directories to deposit output files
+resources: resources/Mmul_10/
 results: results/Mmul_10/
 log: log/Mmul_10/
 
