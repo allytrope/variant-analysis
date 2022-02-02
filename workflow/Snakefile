@@ -4,7 +4,9 @@ The corresponding config file for the project can be written under `configfile`.
 
 configfile: "config/Mmul_10.yaml"
 include: "rules/variant_calling.smk"
+include: "rules/gene_counts.smk"
 include: "rules/phasing.smk"
+include: "rules/kinship.smk"
 include: "rules/relations.smk"
 wildcard_constraints:
     dataset="\w+"
@@ -46,7 +48,7 @@ rule create_readme:
     |
     ├─ vcf  # Called variants as .g.vcf files
     |
-    ├─ db  #	GenomicsDB datastore consolidating .g.vcf files. Not human-readable
+    ├─ db  # GenomicsDB datastore consolidating .g.vcf files. Not human-readable
     |
     ├─ VQSR  # Variant recalibration
     |
@@ -64,11 +66,17 @@ rule create_readme:
     |
     ├─ relatedness  # Pairwise estimates of relatedness between samples
     |
-    └─ admixture  # Find rates of admixture among samples
-        |
-        ├─ supervised  # Uses additional samples of known origin
-        |
-        └─ unsupervised  # No known origins
+    ├─ admixture  # Find rates of admixture among samples
+    |   |
+    |   ├─ supervised  # Uses additional samples of known origin
+    |   |
+    |   └─ unsupervised  # No known origins
+    |
+    └─ aims  # Ancestry informative markers
+
+    Directories for determining kinship using LASAR and SEEKIN:
+
+    └─ kinship  # Allele frequencies and pairwise relatedness
 
     ''' > {output}
     """

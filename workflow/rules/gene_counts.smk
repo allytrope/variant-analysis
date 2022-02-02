@@ -46,7 +46,7 @@ rule merge_counts:
 
 rule only_gene_names:
     """Remove non-coding mRNAs and sort by gene."""
-    input: quants=directory(config["results"] + "gene_counts/unfiltered_counts/{sample}.counts")
+    input: quants=config["results"] + "gene_counts/unfiltered_counts/{sample}.counts"
     output: filtered_quants=config["results"] + "gene_counts/merged_filtered.counts"
     threads: 1
     shell: "awk 'NR == 1; NR > 1 && $1 !~ /^XR_/ && ($2!=0 && $2!=0 && $3!=0 && $4!=0) {print $0 | \"sort\"}' merged_filtered.counts > {output.filtered_quants}"
