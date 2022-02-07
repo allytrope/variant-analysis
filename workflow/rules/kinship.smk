@@ -1,23 +1,23 @@
 """Ancestry and pairwise relatedness estimation based on LASER and SEEKIN software, respectively.
-These are better than ADMIXTURE and lcMLkin for related individuals.
-LASER is said to work on shotgun sequencing data.
-Using SEEKIN-het for related individuals."""
+LASER and SEEKIN-het are better than ADMIXTURE and lcMLkin for related individuals.
+LASER is said to work on shotgun sequencing data, but requires a set of
+reference individuals with "genome-wide SNP genotypes and ancestry information" available."""
 
+CONFIG = config["kinship"]
 DIR = config["results"] + "kinship/"
 PREFIX = "test"
-REF_VCF = config["results"] + "ref/ref_vcf_remapped.vcf.gz"  # known_variants  # or config["VQSR"]["truth_vcf"]  # truth
-REF_FASTA = config["results"] + "ref/ref_genome.fna.gz"
-DIM = 2  # Dimension of reference space.
 
 rule create_geno_and_site:
     """Create .geno and .site files for LASER."""
-    input: ref_vcf = REF_VCF
+    input: ref_vcf = CONFIG["ref_vcf"],
+           pop_ids = CONFIG["pop_ids"]
     output: geno = DIR + PREFIX + ".geno",
             site = DIR + PREFIX + ".site",
-    params: prefix = PREFIX,
+    params: prefix = DIR + PREFIX,
     shell: "vcf2geno \
                 --inVcf {input.ref_vcf} \
-                --out {params.prefix}"
+                --out {params.prefix} \
+                --updateID {input.pop_ids}"
 
 rule create_bed:
     """Create .bed file, containing list of sites."""
@@ -28,8 +28,8 @@ rule create_bed:
 rule create_pileup:
     """Create .pileup file for a sample."""
     input: bed = DIR + PREFIX + ".bed",
-           ref_fasta = REF_FASTA,
-           ref_fasta_idx = REF_FASTA + ".fai",
+           ref_fasta = CONFIG["ref_fasta"],
+           ref_fasta_idx = CONFIG["ref_fasta"] + ".fai",
            bam = config["results"] + "alignments/{sample}.bam",  ## From bwa-mem. Though uses BEAGLE in documentation.
     output: pileup = DIR + "{sample}.pileup",
     shell: "samtools mpileup {input.bam} \
@@ -40,7 +40,7 @@ rule create_pileup:
 
 rule create_seq:
     """Create .seq file for LASER."""
-    input: ref_fasta = REF_FASTA,
+    input: ref_fasta = CONFIG["ref_fasta"],
            site = DIR + PREFIX + ".site",
            pileups = expand("{dir}{sample}.pileup", dir=DIR, sample=SAMPLE_NAMES)
     output: seq = DIR + PREFIX + ".seq",
@@ -58,7 +58,7 @@ rule create_coord:
             var = DIR + PREFIX + ".RefPC.var",
             grm = DIR + PREFIX + ".RefPC.grm",  # Only for when `-pca 1`. When `3`, makes `.RefPC.load` instead.
     params: pca_mode = 1,
-            prefix = PREFIX,
+            prefix = DIR + PREFIX,
             conf = DIR + "laser.conf",
     shell: "laser \
                 -pca {params.pca_mode} \
@@ -73,7 +73,7 @@ rule laser:
     output: seq_coord = DIR + PREFIX + ".SeqPC.coord",
             #ind_cov = DIR + OUT_PREFIX + ".ind.cov",  # When `-cov 1`
             #loc_cov = DIR + OUT_PREFIX + ".loc.cov",  # When `-cov 1`
-    params: prefix = PREFIX,
+    params: prefix = DIR + PREFIX,
             conf = DIR + "laser.conf",  # parameterfile
     shell: "laser \
                 -g {input.geno} \
@@ -84,11 +84,11 @@ rule laser:
 
 rule model_AF:
     """Model allele frequencies as linear functions of PCs based on the ancestry reference panel."""
-    input: vcf = REF_VCF,  # genotypes of reference individuals (.vcf.gz)
+    input: vcf = CONFIG["ref_vcf"],  # genotypes of reference individuals (.vcf.gz)
            ref_coord = DIR + "RefPC.coord",  # PCA coordinates of reference individuals
     output: DIR + "AF.model",
     threads: 1
-    params: k = DIM,  # Number of PCs used to model AF. Default is 2.
+    params: k = CONFIG["dim"],  # Number of PCs used to model AF. Default is 2.
     shell: "seekin modelAF \
                 -i {input.vcf} \
                 -c {input.ref_coord} \
@@ -99,25 +99,30 @@ rule get_AF:
     """Estimate individual-specific allele frequencies of study individuals."""
     input: ref_coord = DIR + PREFIX + ".RefPC.coord",  # coordinates of study individuals in the reference space
            AFmodel = DIR + "AF.model",
-    output: DIR + "indivAF.vcf.gz",
+    output: indivAF = DIR + "indivAF.vcf.gz",
     threads: 1
-    params: k = DIM, # Number of PCs used to compute allele frequencies.
+    params: k = CONFIG["dim"], # Number of PCs used to compute allele frequencies.
     shell: "seekin getAF \
                 -i {input.ref_coord} \
                 -b {input.AFmodel} \
                 -k {params.k} \
-                -o {output}"
+                -o {output.indivAF}"
 
 rule pairwise_kinship:
     """Estimate relatedness with SEEKIN-het for related individuals and admixture."""
     input: indivAF = DIR + PREFIX + ".indivAF.vcf.gz",
-           ref_vcf = REF_VCF,  ## VCF of genotypes or dosages of study individuals
-    output: DIR + PREFIX + ".het",
+           ref_vcf = CONFIG["ref_vcf"],  ## VCF of genotypes or dosages of study individuals
+    output: log = DIR + PREFIX + ".het.log",
+            kin = DIR + PREFIX + ".het.kin",
+            inbreed = DIR + PREFIX + ".het.inbreed",
+            matrix = DIR + PREFIX + ".het.matrix",
+            matrixID = DIR + PREFIX + ".het.matrixID",
     threads: 10  # Default 10
-    params: prefix = PREFIX,
+    params: prefix = DIR + PREFIX + ".het",
     shell: "seekin kinship \
             -i {input.ref_vcf} \
             -f {input.indivAF} \
             -p het \
             -t {threads} \
             -o {params.prefix}"
+
