@@ -1,0 +1,7 @@
+
+name: coverage
+channels:
+- bioconda
+
+dependencies:
+- bioconda::bedtools=2.30.0

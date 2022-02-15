@@ -277,13 +277,14 @@ rule joint_call_cohort:
 
 # Variant quality score recalibration
 rule calls_recalibration:
-    """Build a recalibration model."""
+    """Build a recalibration model using SNPs."""
     input: ref = config["results"] + "ref/ref_genome.fna.gz",
            vcf = config["results"] + "joint_call/{workspace}.vcf.gz",
            truth = CONFIG["VQSR_truth_vcf"],
            training = CONFIG["VQSR_training_vcf"],
     output: recal = config["results"] + "VQSR/{workspace}.recal",
             tranches = config["results"] + "VQSR/{workspace}.tranches",
+            fig = config["results"] + "VQSR/{workspace}.fig",  # Must have R in path
     threads: 1
     conda: "../envs/gatk.yaml"
     shell: "gatk --java-options '-Xmx8g' VariantRecalibrator \
@@ -292,8 +293,10 @@ rule calls_recalibration:
                 -O {output.recal} \
                 --resource source1,known=false,truth=true,training=true,prior=10.0:{input.truth} \
                 --resource source2,known=false,truth=false,training=true,prior=10.0:{input.training} \
-                #-an add anotations from VCF \
-                --tranches-file {output.tranches}"
+                -an QD -an MQ -an MQRankSum -an ReadPosRankSum -an FS -an SOR \
+                -mode SNP \
+                --tranches-file {output.tranches} \
+                --rscript-file {output.fig}"
 
 rule apply_variant_recalibration:
     """Apply recalibration model."""
@@ -345,3 +348,17 @@ rule snp_summary:
     --warning_file {output.warnings} \
     --species {params.species} \
     --cache"
+
+'''
+rule align_genomes:
+    """Align two genomes. Meant for intra-species genomes or closely related species."""
+    input: ref_genome = ,
+           query_genome = ,
+    output: config["results"] + "aligned_genomes/aligned_genomes.maf",
+            config["results"] + "aligned_genomes/aligned_genomes.vcf",
+    params: out_prefix = "aligned_genomes",
+    shell: "GSAlign \
+                -r {input.ref_genome} \
+                -q {input.query_genome} \
+                -o {params.out_prefix}"
+'''

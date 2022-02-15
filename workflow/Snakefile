@@ -8,6 +8,7 @@ include: "rules/gene_counts.smk"
 include: "rules/phasing.smk"
 include: "rules/kinship.smk"
 include: "rules/relations.smk"
+include: "rules/coverage.smk"
 wildcard_constraints:
     dataset="\w+"
 

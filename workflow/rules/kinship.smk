@@ -5,12 +5,12 @@ reference individuals with "genome-wide SNP genotypes and ancestry information" 
 
 CONFIG = config["kinship"]
 DIR = config["results"] + "kinship/"
-PREFIX = "test"
+PREFIX = "no_missing_geno"
 
 rule create_geno_and_site:
     """Create .geno and .site files for LASER."""
     input: ref_vcf = CONFIG["ref_vcf"],
-           pop_ids = CONFIG["pop_ids"]
+           pop_ids = CONFIG["pop_ids"],
     output: geno = DIR + PREFIX + ".geno",
             site = DIR + PREFIX + ".site",
     params: prefix = DIR + PREFIX,
@@ -23,16 +23,17 @@ rule create_bed:
     """Create .bed file, containing list of sites."""
     input: site = DIR + PREFIX + ".site",
     output: bed = DIR + PREFIX + ".bed",
-    shell: "awk '{if(NR>1){print $1, $2-1, $2, $3;}}' {input.site} > {output.bed}"
+    shell: "awk '{{if (NR>1) {{print $1,$2-1,$2,$3;}}}}' {input.site} > {output.bed}"
 
 rule create_pileup:
     """Create .pileup file for a sample."""
     input: bed = DIR + PREFIX + ".bed",
            ref_fasta = CONFIG["ref_fasta"],
            ref_fasta_idx = CONFIG["ref_fasta"] + ".fai",
-           bam = config["results"] + "alignments/{sample}.bam",  ## From bwa-mem. Though uses BEAGLE in documentation.
-    output: pileup = DIR + "{sample}.pileup",
-    shell: "samtools mpileup {input.bam} \
+           bam = config["results"] + "alignments_recalibrated/{sample}.bam",  ## From bwa-mem in `variant_calling.smk`
+    output: pileup = DIR + "pileup/{sample}.pileup",
+    conda: "../envs/kinship.yaml"
+    shell: "samtools sort {input.bam} | samtools mpileup \
                 -q 30 \
                 -Q 20 \
                 -f {input.ref_fasta} \
@@ -42,7 +43,7 @@ rule create_seq:
     """Create .seq file for LASER."""
     input: ref_fasta = CONFIG["ref_fasta"],
            site = DIR + PREFIX + ".site",
-           pileups = expand("{dir}{sample}.pileup", dir=DIR, sample=SAMPLE_NAMES)
+           pileups = expand("{dir}pileup/{sample}.pileup", dir=DIR, sample=SAMPLE_NAMES)
     output: seq = DIR + PREFIX + ".seq",
     # SET IN PATH OR MOVE
     # `-b` and `-i` flags are optional

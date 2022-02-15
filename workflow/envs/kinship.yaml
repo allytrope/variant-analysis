@@ -1,0 +1,10 @@
+# Conda environment for `kinship.smk`
+
+name: kinship
+channels:
+- bioconda
+- conda-forge
+- defaults
+
+dependencies:
+- bioconda::samtools=0.1.19  # Version that LASER writes in documentation
