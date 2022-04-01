@@ -15,8 +15,21 @@ variant_calling:
   vcf: results/Mmul_10/ref/Mmul_10.vcf.gz
   contig_remapping: results/Mmul_10/ref/remapping.tsv
   BQSR_known_variants: results/Mmul_10/ref/ref_vcf_remapped.vcf.gz
-  VQSR_truth_vcf: results/Mmul_10/ref/mult_obs_Mmul_10.vcf.gz
-  VQSR_training_vcf: results/Mmul_10/ref/sing_obs_Mmul_10.vcf.gz
+  SNP:
+    VQSR_truth_vcf: results/Mmul_10/ref/mult_obs_Mmul_10.vcf.gz
+    VQSR_truth_prior: 13.0
+    VQSR_training_vcf: results/Mmul_10/ref/sing_obs_Mmul_10.vcf.gz
+    VQSR_training_prior: 10.0
+    VQSR_known_vcf: ''
+    VQSR_known_prior: 2.0
+  indel:
+    VQSR_truth_vcf: results/Mmul_10/ref/mult_obs_Mmul_10.vcf.gz
+    VQSR_truth_prior: 13.0
+    VQSR_training_vcf: results/Mmul_10/ref/sing_obs_Mmul_10.vcf.gz
+    VQSR_training_prior: 10.0
+    VQSR_known_vcf: ''
+    VQSR_known_prior: 2.0
+  chromosome_remapping: results/Mmul_10/ref/chrom_remapping.tsv  # Inverse of contig_remapping
 
 # For `gene_counts.smk`
 gene_counts:
@@ -49,6 +62,13 @@ relations:
   # Frequency below which to not consider as an AIM.
   # Must be greater than 0.5, perferably as close to 0.9999 while still providing variants.
   AIMs_max_diff: 0.85
+  fst:
+    gzvcf: resources/Mmul_8/rhesus_gbs_further_filtered.recode.vcf
+    # All populations for pairwise analysis
+    # Directory containing files with ids grouped by file.
+    pop_dir: resources/Mmul_8/relatedness/ids_by_year/per_one_year/grouped/
+    # Lists of ids for each population
+    pops: []
 
 # For `phasing.smk`
 phasing:
@@ -63,6 +83,6 @@ coverage:
 
 # Path to each input FASTQ file (excluding file extension)
 data:
-- /data/RHESUS/FASTQ/GBS/rhesus_GBS_demultiplex_output_2019043/GBS30618_2
-- /data/RHESUS/FASTQ/GBS/rhesus_GBS_demultiplex_output_2019043/GBS30651_2
-- /data/RHESUS/FASTQ/GBS/rhesus_GBS_demultiplex_output_2019043/GBS30739_2
+ - /data/RHESUS/FASTQ/GBS/rhesus_GBS_demultiplex_output_2019043/GBS30618_2
+ - /data/RHESUS/FASTQ/GBS/rhesus_GBS_demultiplex_output_2019043/GBS30651_2
+ - /data/RHESUS/FASTQ/GBS/rhesus_GBS_demultiplex_output_2019043/GBS30739_2
