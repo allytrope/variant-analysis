@@ -20,7 +20,8 @@ rule estimate_relatedness_lcmlkin:
 
 # Find Fst using scikit-allel
 rule scikit_allel_fst:
-    """Calculate Fst."""
+    """Calculate pairwise Fst between populations within non-overlapping windows.
+    Output file stores data from a pandas dataframe to be easily graphed with a Python graphing library like seaborn."""
     input: vcf = CONFIG["vcf"],
     output: #config["results"] + "relatedness/fst/created_scikit_fst.txt",
             #hdf5 = config["results"] + "relatedness/fst/fsts.hdf5",
@@ -29,6 +30,14 @@ rule scikit_allel_fst:
     conda: "../envs/scikit.yaml"
     params: subpops = CONFIG["fst"]["pops"],
     script: "../scripts/fst.py"
+
+rule scikit_allel_diversity:
+    """Estimate nucleotide diversity in windows. Output files are formatted to be graphed with the R tool chromoMap."""
+    input: vcf = CONFIG["vcf"],
+    output: annotations = config["results"] + "relatedness/diversity/diversity.tsv",
+            chromosomes = config["results"] + "relatedness/diversity/chromosomes.tsv",
+    conda: "../envs/scikit.yaml"
+    script: "../scripts/diversity.py"
 
 # --------------
 # Unsupervised admixture
