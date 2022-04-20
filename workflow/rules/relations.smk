@@ -39,6 +39,21 @@ rule scikit_allel_diversity:
     conda: "../envs/scikit.yaml"
     script: "../scripts/diversity.py"
 
+rule scikit_allel_ROH:
+    """Calculate runs of homozygosity."""
+    input: vcf = CONFIG["vcf"],
+    output: roh_pickle = config["results"] + "relatedness/roh/roh_poisson.pickle",  # Stores a pandas datafrane
+            froh_pickle = config["results"] + "relatedness/roh/froh_poisson.pickle",  # Stores a dictionary
+    conda: "../envs/scikit.yaml"
+    script: "../scripts/runs_of_homozygosity.py"
+
+# Under development
+# rule scikit_allel_PCA:
+#     """Perform principal component analysis of genotype data."""
+#     input: vcf = CONFIG["vcf"],
+#     output:
+#     conda: "../envs/scikit.yaml"
+#     script: "../scripts/PCA.py"
 # --------------
 # Unsupervised admixture
 
@@ -215,22 +230,15 @@ rule find_AIMs:
             | awk '$4 - $3 > {params.max_diff} || $3 - $4 > {params.max_diff} {{print $0}}' - \
             > {output}"
 
-rule create_chromosome_file:
-    """Chromosome file for `chromoMap`."""
-    input: "",
-    output: "",
-    shell: "awk 'BEGIN {{ID = 1}} {{print $1,1,$2,$2+1}}' {input} > {output}"
+# rule create_chromosome_file:
+#     """Chromosome file for `chromoMap`."""
+#     input: "",
+#     output: "",
+#     shell: "awk 'BEGIN {{ID = 1}} {{print $1,1,$2,$2+1}}' {input} > {output}"
 
-rule create_annotation_file:
-    """Annotation file for `chromoMap`."""
-    input: config["results"] + "aims/{dataset}.{clusters}.aims",
-    output: config["results"] + "aims",
-    shell: "awk 'BEGIN {{ID = 1}} {{print \"SNP\"ID,$1,$2,$2+1; ID += 1}}' {input} > {output}"
+# rule create_annotation_file:
+#     """Annotation file for `chromoMap`."""
+#     input: config["results"] + "aims/{dataset}.{clusters}.aims",
+#     output: config["results"] + "aims",
+#     shell: "awk 'BEGIN {{ID = 1}} {{print \"SNP\"ID,$1,$2,$2+1; ID += 1}}' {input} > {output}"
 
-# Under development. Can be run in RStudio for obtaining graphic.
-rule draw_chromoMap:
-    """Use R tool `chromoMap` to visualize frequency of loci."""
-    input: chromosomes = config["resources"] + "chromosomes.txt",
-           SNPs = config["results"] + "aims/{dataset}.{clusters}.aims",
-    output: "",
-    script: "../script/chromoMap.r"
