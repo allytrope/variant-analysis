@@ -158,10 +158,10 @@ rule contig_remapping:
                 -o {output} \
                 -Oz"
 
-rule index_vcf:
-    """Create and index for .vcf file."""
-    input: vcf = config["results"] + "ref/ref_vcf_remapped.vcf.gz",
-    output: config["results"] + "ref/ref_vcf_remapped.vcf.gz.tbi",
+rule tbi_index:
+    """Create .tbi index."""
+    input: "{path}/{name}.vcf.gz",
+    output: "{path}/{name}.vcf.gz.tbi",
     threads: 1
     conda: "../envs/gatk.yaml"
     shell: "gatk IndexFeatureFile \
@@ -275,90 +275,30 @@ rule joint_call_cohort:
                 -V gendb://{input.db} \
                 -O {output}"
 
-# Variant quality score recalibration
-rule calls_recalibration:
-    """Build a recalibration model using SNPs."""
+rule joint_call_cohort_per_chromosome:
+    """Use GenomicsDB to jointly call a VCF file."""
     input: ref = config["results"] + "ref/ref_genome.fna.gz",
-           vcf = config["results"] + "joint_call/{workspace}.vcf.gz",
-           truth = CONFIG["VQSR_truth_vcf"],
-           training = CONFIG["VQSR_training_vcf"],
-    output: recal = config["results"] + "VQSR/{workspace}.recal",
-            tranches = config["results"] + "VQSR/{workspace}.tranches",
-            fig = config["results"] + "VQSR/{workspace}.fig",  # Must have R in path
+           db = config["results"] + "db/{workspace}",
+    output: config["results"] + "joint_call/{workspace}.{chrom}.vcf.gz",
     threads: 1
     conda: "../envs/gatk.yaml"
-    shell: "gatk --java-options '-Xmx8g' VariantRecalibrator \
+    shell: "gatk --java-options '-Xmx8g' GenotypeGVCFs \
                 -R {input.ref} \
-                -V {input.vcf} \
-                -O {output.recal} \
-                --resource source1,known=false,truth=true,training=true,prior=10.0:{input.truth} \
-                --resource source2,known=false,truth=false,training=true,prior=10.0:{input.training} \
-                -an QD -an MQ -an MQRankSum -an ReadPosRankSum -an FS -an SOR \
-                -mode SNP \
-                --tranches-file {output.tranches} \
-                --rscript-file {output.fig}"
-
-rule apply_variant_recalibration:
-    """Apply recalibration model."""
-    input: ref = config["results"] + "ref/ref_genome.fna.gz",
-           vcf = config["results"] + "joint_call/{workspace}.vcf.gz",
-           recal = config["results"] + "VQSR/{workspace}.recal",
-           tranches = config["results"] + "VQSR/{workspace}.tranches",
-    output: config["results"] + "joint_call/{workspace}_recalibrated.vcf.gz",
-    threads: 1
-    conda: "../envs/gatk.yaml"
-    shell: "gatk --java-options 'Xmx8g' ApplyVQSR \
-                -R {input.ref} \
-                -V {input.vcf} \
+                -V gendb://{input.db} \
                 -O {output} \
-                --recal-file {input.recal} \
-                --tranches-file {input.tranches}"
-
-# CHANGE TO WORK FOR MMUL_10 DATA
-'''
-rule snp_summary:
-    """Gives a summary of SNP data from .vcf file."""
-    input: vcf=config["results"] + "joint_call/recalibrated_joint_call.vcf.gz"
-    output: config["results"] + "joint_call/snp_summary.txt"
-    shell: "vep \
-    --custom /home/flow/ensembl-vep/Mmul_8.0.1.92.chr.gff3.gz,,gff \
-    --fasta Mmul_8.0.1.chromosome.fa \
-    --gff /home/flow/ensembl-vep/Mmul_8.0.1.92.chr.gff3.gz \
-    --input_file {input.vcf} \
-    --output_file {output} \
-    --stats_text "
-'''
-
-# Download cache for species of interest first
-rule snp_summary:
-    """Gives a summary of SNP data from .vcf file."""
-    input: vcf = config["results"] + "joint_call/{workspace}_recalibrated.vcf.gz",
-           ref = config["results"] + "ref/ref_genome.fna.gz",
-    output: txt = config["results"] + "joint_call/{workspace}_snp_summary.txt",
-            html = config["results"] + "joint_call/{workspace}_snp_summary.html",
-            warnings = config["results"] + "joint_call/{workspace}_snp_summary_warnings.txt",
-    params: species = config["ref"]["species"],
-    threads: 1
-    conda: "../envs/bio.yaml"
-    shell: "vep \
-    --input_file {input.vcf} \
-    --fasta {input.ref} \
-    --output_file {output.txt} \
-    --stats_text {output.html} \
-    --warning_file {output.warnings} \
-    --species {params.species} \
-    --cache"
-
-'''
-rule align_genomes:
-    """Align two genomes. Meant for intra-species genomes or closely related species."""
-    input: ref_genome = ,
-           query_genome = ,
-    output: config["results"] + "aligned_genomes/aligned_genomes.maf",
-            config["results"] + "aligned_genomes/aligned_genomes.vcf",
-    params: out_prefix = "aligned_genomes",
-    shell: "GSAlign \
-                -r {input.ref_genome} \
-                -q {input.query_genome} \
-                -o {params.out_prefix}"
-'''
+                -L {wildcards.chrom}"
+                
+# Copied from above rule
+# rule chromosome_remapping_per_chromosome:
+#     """Change names of contigs in .vcf according to given mapping.
+#     For example, can be used to change project contig ids to those of RefSeq.
+#     Or to change be between form {1, 2, 3,...} and {chr1, chr2, chr3,...}."""
+#     input: vcf = "{path}/{name}."
+#            map = CONFIG["contig_remapping"],
+#     output: config["results"] + "ref/ref_vcf_remapped.vcf.gz",
+#     threads: 1
+#     conda: "../envs/bio.yaml"
+#     shell: "bcftools annotate {input.vcf} \
+#                 --rename-chrs {input.map} \
+#                 -o {output} \
+#                 -Oz"
