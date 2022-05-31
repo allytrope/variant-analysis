@@ -1,27 +1,5 @@
 """Contain rules for hard filtering. Runs after variant_calling.smk and as an alternative to variant_recalibration.smk."""
 
-rule subset_mode:
-    """Split into SNP- or indel-only .vcf. The wildcard `mode` can be "SNP" or "indel"."""
-    wildcard_constraints: mode = "SNP|indel",
-    input: #vcf = "{path}/{workspace}.vcf.gz",
-           #vcf_index = "{path}/{workspace}.vcf.gz.tbi",
-           vcf = config["results"] + "hard_filtered/unfiltered/{workspace}.vcf.gz",
-           vcf_index = config["results"] + "hard_filtered/unfiltered/{workspace}.vcf.gz.tbi",
-           ref_fasta = config["variant_calling"]["ref_fasta"],
-    output: split = config["results"] + "hard_filtered/unfiltered/{workspace}.{mode}.vcf.gz",
-    params: equality = lambda wildcards: "=" if wildcards.mode == "indel" else "!=",
-    threads: 1
-    conda: "../envs/bio.yaml"
-    shell: """
-        bcftools norm {input.vcf} \
-            -m-any \
-            --fasta-ref {input.ref_fasta} \
-            -Ou \
-        | bcftools view \
-            -e'type{params.equality}"snp"' \
-            -Oz \
-            -o {output.split}
-        """
 
 def filters(mode):
     """Use in rule hard_filter."""
@@ -47,16 +25,18 @@ rule hard_filter:
     threads: 1
     conda: "../envs/gatk.yaml"
     params: filters = lambda wildcards: filters(wildcards.mode),
-    shell: """gatk VariantFiltration \
+    shell: """gatk --java-options '-Xmx8g' VariantFiltration \
                 -V {input.vcf} \
                 -O {output.filtered} \
                 {params.filters} """
 
-rule pass_only:
+### These work for both hard filtering and VQSR
+
+rule pass_only_hard_filter:
     """Remove variants that have been filtered."""
     wildcard_constraints: mode = "SNP|indel",
-    input: vcf = config["results"] + "hard_filtered/filter_applied/{workspace}.{mode}.filtered.vcf.gz",
-    output: vcf = config["results"] + "hard_filtered/pass_only/{workspace}.{mode}.pass_only.vcf.gz",
+    input: vcf = config["results"] + "{filter_method}/filter_applied/{workspace}.{mode}.filtered.vcf.gz",
+    output: vcf = config["results"] + "{filter_method}/pass_only/{workspace}.{mode}.pass_only.vcf.gz",
     conda: "../envs/bio.yaml"
     shell: """
         bcftools view {input.vcf} \
@@ -66,10 +46,9 @@ rule pass_only:
 
 rule merge_filtered_subsets:
     """Merge .vcf file containing SNPs and those containing indels."""
-    wildcard_constraints: mode = "SNP|indel",
-    input: vcfs = lambda wildcards: expand(config["results"] + "hard_filtered/pass_only/{workspace}.{mode}.pass_only.vcf.gz", workspace=wildcards.workspace, mode=["SNP", "indel"]),
-           tbi_vcfs = lambda wildcards: expand(config["results"] + "hard_filtered/pass_only/{workspace}.{mode}.pass_only.vcf.gz.tbi", workspace=wildcards.workspace, mode=["SNP", "indel"]),
-    output: config["results"] + "hard_filtered/pass_only/{workspace}.filtered.vcf.gz",
+    input: vcfs = lambda wildcards: expand(config["results"] + "{filter_method}/pass_only/{workspace}.{mode}.pass_only.vcf.gz", workspace=wildcards.workspace, mode=["SNP", "indel"]),
+           tbi_vcfs = lambda wildcards: expand(config["results"] + "{filter_method}/pass_only/{workspace}.{mode}.pass_only.vcf.gz.tbi", workspace=wildcards.workspace, mode=["SNP", "indel"]),
+    output: config["results"] + "{filter_method}/pass_only/{workspace}.pass_only.vcf.gz",
     threads: 2
     conda: "../envs/bio.yaml"
     shell: "bcftools concat {input.vcfs} \
@@ -113,12 +92,32 @@ rule merge_filtered_subsets:
 #             | awk -v OFS='' '{print $NF,$1}' \
 #             | sort > {output.largest_samples}"        
 
-# rule subset_joint_vcf:
-#     """Keep only the sample from each individual with the most data. WGS > WES > GBS. And rename to just animal id."""
-#     input: vcf = config["results"] + "joint_call/{workspace}.filtered.remap.vcf.gz",  # Output from hard filtering in variant_calling.smk
-#            subset_samples = config["results"] + "joint_vcf/largest_samples.list",
-#     output: subset = config["results"] + "joint_call/{workspace}.filtered.remap.subset.vcf.gz",
-#     shell: "bcftools view {input.vcf} \
-#                 -S {input.samples} \
-#                 -Oz \
-#                 -o {output}"
+rule subset_joint_vcf:
+    """Keep only the sample from each individual with the most data. WGS > WES > GBS. And rename to just animal id.
+    
+    To create sample_map from subset_samples:
+    awk -v FS='S' '{print $1"S"$2,$2}' largest_samples.list > largest_samples_map.list
+    """
+    input: vcf = config["results"] + "{filter_method}/pass_only/{workspace}.{mode}.pass_only.vcf.gz",  # Need to set up multiallelic rule
+           #subset_samples = config["results"] + "joint_vcf/largest_samples.list",
+           samples_subset = config["resources"] + "samples/largest_samples.list",
+           sample_map = config["resources"] + "samples/largest_samples_map.list",
+    output: subset = config["results"] + "{filter_method}/pass_only/{workspace}.{mode}.pass_only.subset.vcf.gz",
+    # # Ideally reverse order since `reheader` doesn't ahve a -O option to make into .vcf.gz
+    # Shell command does the following:
+    # 1) Subset samples
+    # 2) Rename samples
+    # 3) Keep only variants with an allele count > 0
+    # 4) Combine any remaining multiallelics into a single line.
+    shell: "bcftools view {input.vcf} \
+                -S {input.samples_subset} \
+                -Ou \
+            | bcftools reheader \
+                -s {input.sample_map} \
+            | bcftools view \
+                --min-ac=1 \
+                -Ou \
+            | bcftools norm \
+                -m+any \
+                -Oz \
+                -o {output}"

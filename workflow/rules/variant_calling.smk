@@ -9,10 +9,8 @@ CONFIG = config["variant_calling"]
 ## Creating indicies
 rule index_ref:
     """Create BWA index files for reference genome."""
-    input: #config["results"] + "ref/ref_genome.fna.gz",
-           CONFIG["ref_fasta"],
-    output: #multiext(config["results"] + "ref/ref_genome.fna.gz", ".amb", ".ann", ".bwt", ".pac", ".sa"),
-            multiext(CONFIG["ref_fasta"], ".amb", ".ann", ".bwt", ".pac", ".sa"),
+    input: CONFIG["ref_fasta"],
+    output: multiext(CONFIG["ref_fasta"], ".amb", ".ann", ".bwt", ".pac", ".sa"),
     conda: "../envs/bio.yaml"
     shell: "bwa index {input}"
 
@@ -230,4 +228,41 @@ rule joint_call_cohort_per_chromosome:
                 -V gendb://{input.db} \
                 -O {output} \
                 -L {wildcards.chrom}"
-                
+
+## Split SNPs and indels
+rule subset_mode:
+    """Split into SNP- or indel-only .vcf. The wildcard `mode` can be "SNP" or "indel". Then keeps only biallelic sites."""
+    input: vcf = config["results"] + "joint_call/{workspace}.vcf.gz",
+           vcf_index = config["results"] + "joint_call/{workspace}.vcf.gz.tbi",
+           ref_fasta = config["variant_calling"]["ref_fasta"],
+    output: split = config["results"] + "joint_call/split/{workspace}.{mode}.biallelic.vcf.gz",
+    params: equality = lambda wildcards: "=" if wildcards.mode == "indel" else "!=",
+    threads: 1
+    conda: "../envs/bio.yaml"
+    # 1) Separate multiallelics into different lines
+    # 2) Take only SNPs or indels
+    # 3) Merge multiallelics back into same lines
+    # 4) Keep only biallelics
+    # Alternative:
+    # bcftools view {input.vcf} \
+    # -M2 \
+    # -v snps \
+    # -Oz \
+    # -o {output.split} \
+    shell: """
+        bcftools norm {input.vcf} \
+            -m-any \
+            --fasta-ref {input.ref_fasta} \
+            -Ou \
+        | bcftools view \
+            -e'type{params.equality}"snp"' \
+            -Ou \
+        | bcftools norm \
+            -m+any \
+            -Ou \
+        | bcftools view \
+            -M2 \
+            -Oz \
+            -o {output.split} \
+        """
+
