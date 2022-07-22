@@ -1,0 +1,8 @@
+name: shapeit4
+channels:
+- bioconda
+- conda-forge
+- defaults
+
+dependencies:
+- bioconda::shapeit4=4.2.2
