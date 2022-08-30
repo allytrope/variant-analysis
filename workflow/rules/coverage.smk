@@ -1,11 +1,11 @@
-"""Rules related to determining genomic coverage of sequences."""
+"""Rules related to determining genomic coverage."""
 
 CONFIG = config["coverage"]
 DIR = config["results"] + "coverage/"
 
 rule find_coverage:
     """Find coverage of sequence. Helpful for finding what regions are being sequenced."""
-    input: bam = config["results"] + "alignments/{sample}.bam",
+    input: bam = config["results"] + "alignments_recalibrated/{sample}.bam",
     output: counts = DIR + "per_read/{sample}.bg",
     threads: 1
     conda: "../envs/coverage.yaml"
@@ -23,15 +23,18 @@ rule merge_coverages:
                 -i {input} \
                 > {output}"
 
-rule sum_coverages:
-    """Sum counts for each sample. Then filter out reads below a cutoff count."""
+# To be modified when using ENSEMBL reference (i.e., numbered chromosomes).
+rule find_common_loci:
+    """Find loci common to most samples based on cutoff value.
+    This works by finding the number of samples with reads at that position, keeping only those above a given cutoff, and then merging intervals that overlap or are immediately adjacent."""
     input: DIR + "merged_coverage.bg",
-    output: DIR + "summed_coverage.bg",
-    params: cutoff = CONFIG["cutoff"],
+    output: DIR + "common_loci.bed",
+    params: cutoff = CONFIG["cutoff"],  # 0 <= cutoff <= 1
     threads: 1
     conda: "../envs/coverage.yaml"
-    # Find union of of `.bg` files.
-    # `awk` sums from the fourth column to the end of line.
-    shell: "awk '{{for (i=4; i<NF; i++) j+=$i; print $1,$2,$3,j; j=0}}' {input} \
-            | awk '$4 > {params.cutoff} {{print $0}}' \
-            > {output}"
+    shell: """
+        awk -v 'OFS=\t' '{{for (i=4; i<=NF; i++) {{if ($i > 0) count += 1}}; if (count/(NF - 3) > {params.cutoff}) print $1,$2,$3; count = 0}}' {input}
+        | grep '^NC'
+        | bedtools merge
+            -d 1 
+        > {output}"""
