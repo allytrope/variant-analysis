@@ -8,19 +8,20 @@ import pandas as pd
 
 ## Trimming
 rule cut_adapters_with_i5_i7:
-    """Cut out 3' end adapters. Uses i7 and i5 adapter information. This implementation takes information from the first line of the .R1.fastq file.
-    This thus assumes that all reads in both files use the same i7 and i5 adapters. Additionally, this assumes that the Truseq Dual Index Library was used for the adapters
-    surrounding the i7 and i5 adapters. These are hard coded under "params". The i7 information is used for read 1 and i5 for read 2.
-    Additionally, if the i7 and i5 adapters must actually be in the file headers."""
+    """Cut out 3' end adapters using i7 and i5 adapter information.
+    
+    This implementation takes i7 and i5 values from the first line of the .R1.fastq file and assumes that all reads in both R1 and R2 files use those same adapters.
+    Additionally, this assumes that the Truseq Dual Index Library was used for the adapters surrounding the i7 and i5 ones.
+    These are hard coded under "params". The i7 information is used for finding the adapters in R1 and then i5 for R2."""
     wildcard_constraints:
-        seq = "WGS|WES"
+        seq = "WGS|WES",
     input: 
-        reads = lambda wildcards: expand(config["reads"] + "{seq}{sample}.{read}.fastq.gz",
+        reads = lambda wildcards: expand(config["reads"] + "{seq}{organism_id}.{read}.fastq.gz",
             seq=wildcards.seq,
-            sample=wildcards.sample,
+            organism_id=wildcards.organism_id,
             read=["R1", "R2"]),
     output: 
-        trimmed = expand(config["results"] + "trimmed/{{seq}}{{sample}}.{read}.fastq.gz",
+        trimmed = expand(config["results"] + "trimmed/{{seq}}{{organism_id}}.{read}.fastq.gz",
             read=["R1", "R2"]),
     params: 
         pre_i7 = "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC",
@@ -31,7 +32,6 @@ rule cut_adapters_with_i5_i7:
     resources: nodes = 4
     conda: "../envs/bio.yaml"
     shell: """
-        echo $SHELL;
         ADAPTERS=$(gunzip -c {input.reads[0]} | head -n 1 | cut -d " " -f 2 | cut -d ":" -f 4);
         i7=$(echo $ADAPTERS | cut -d "+" -f 1);
         i5=$(echo $ADAPTERS | cut -d "+" -f 2);
@@ -44,29 +44,63 @@ rule cut_adapters_with_i5_i7:
             -o {output.trimmed[0]} \
             -p {output.trimmed[1]}"""
 
-# Unfinished
-def find_barcode(wildcards, input):
-    """Find sample barcode from barcodes file. Barcode file contains reverse complements."""
-    df = pd.read_table(input.barcodes, header=None, names=["sample", "barcodes"])
-    barcode = df.set_index("sample")["barcodes"].to_dict()[wildcards.sample]
-    return str(Seq(barcode).reverse_complement)
-rule cut_GBS_adapters:
-    """Cut out 3' end adapters. This way differs from the other adapter removing rule.
+rule cut_adapters_with_i5_i7_AMP:
+    """Cut out 3' end adapters using i7 and i5 adapter information.
+    
+    This implementation takes i7 and i5 values from a barcodes file.
+    Additionally, this assumes that the Truseq Dual Index Library was used for the adapters surrounding the i7 and i5 ones.
+    These are hard coded under "params". The i7 information is used for finding the adapters in R1 and then i5 for R2."""
+    wildcard_constraints:
+        seq = "AMP",
+    input: 
+        reads = lambda wildcards: expand(config["reads"] + "{seq}{organism_id}.{read}.fastq.gz",
+            seq=wildcards.seq,
+            organism_id=wildcards.organism_id,
+            read=["R1", "R2"]),
+        barcodes = config["AMP_barcodes"],
+    output: 
+        trimmed = expand(config["results"] + "trimmed/{{seq}}{{organism_id}}.{read}.fastq.gz",
+            read=["R1", "R2"]),
+    params: 
+        pre_i7 = "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC",
+        post_i7 = "ATCTCGTATGCCGTCTTCTGCTTG",
+        pre_i5 = "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
+        post_i5 = "GTGTAGATCTCGGTGGTCGCCGTATCATT",
+    threads: 4
+    resources: nodes = 4
+    conda: "../envs/bio.yaml"
+    shell: """
+        i7=$(grep -P "^{wildcards.organism_id}\t" {input.barcodes} | cut -f 2);
+        i5=$(grep -P "^{wildcards.organism_id}\t" {input.barcodes} | cut -f 3);
+        R1_END_ADAPTER="{params.pre_i7}${{i7}}{params.post_i7}";
+        R2_END_ADAPTER="{params.pre_i5}${{i5}}{params.post_i5}";
+        cutadapt {input.reads} \
+            -a $R1_END_ADAPTER \
+            -A $R2_END_ADAPTER \
+            --cores {threads} \
+            -o {output.trimmed[0]} \
+            -p {output.trimmed[1]}"""
 
-    Used for the GBS that I have. With this data, there is no i7 or i5 values given in the header lines.
-    Instead, R1 and R2 reads have the adapters given under params.
-    After both of these adapters, there is a pseudoconsensus sequence, but left out since Cutadapt will remove anything after the given adapters.
-    However, before the R2 is a per sample consenus sequence that must be discovered"""
+def find_barcode(wildcards, input):
+    """Pull sample barcode from barcodes file, which contains reverse complements for R2."""
+    df = pd.read_table(input.barcodes, header=None, names=["organism_id", "barcodes"])
+    barcode = df.set_index("organism_id")["barcodes"].to_dict()[wildcards.organism_id]
+    return str(Seq(barcode).reverse_complement())
+rule cut_GBS_adapters:
+    """Cut out 3' end adapters from GBS reads.
+
+    This method doesn't rely on i7 or i5 values given in the header lines. Instead, R1 and R2 reads have the adapters given under params.
+    After both of these adapters, there is a pseudoconsensus sequence, but left out since Cutadapt will remove anything after the given adapters."""
     wildcard_constraints:
         seq = "GBS",
     input:
-        reads = lambda wildcards: expand(config["reads"] + "{seq}{sample}.{read}.fastq.gz",
+        reads = lambda wildcards: expand(config["reads"] + "{seq}{organism_id}.{read}.fastq.gz",
             seq=wildcards.seq,
-            sample=wildcards.sample,
+            organism_id=wildcards.organism_id,
             read=["R1", "R2"]),
-        barcodes = config["barcodes"],
+        barcodes = config["GBS_barcodes"],
     output: 
-        trimmed = expand(config["results"] + "trimmed/{{seq}}{{sample}}.{read}.fastq.gz",
+        trimmed = expand(config["results"] + "trimmed/{{seq}}{{organism_id}}.{read}.fastq.gz",
             read=["R1", "R2"]),
     params: 
         barcode = lambda wildcards, input: find_barcode(wildcards, input),
@@ -76,7 +110,6 @@ rule cut_GBS_adapters:
     resources: nodes = 4
     conda: "../envs/bio.yaml"
     shell: """
-        echo $SHELL;
         ADAPTERS=$(gunzip -c {input.reads[0]} | head -n 1 | cut -d " " -f 2 | cut -d ":" -f 4);
         R1_END_ADAPTER="{params.R1_adapter}";
         R2_END_ADAPTER="{params.barcode}{params.R2_adapter}";
@@ -96,12 +129,11 @@ rule align:
     input:
         ref = config["ref_fasta"],
         idxs = multiext(config["ref_fasta"], ".amb", ".ann", ".bwt", ".pac", ".sa"),
-        trimmed = lambda wildcards: expand(config["results"] + "trimmed/{seq}{sample}.{read}.fastq.gz",
-            seq=wildcards.seq,
+        trimmed = lambda wildcards: expand(config["results"] + "trimmed/{sample}.{read}.fastq.gz",
             sample=wildcards.sample,
             read=["R1", "R2"]),
     output:
-        alignment = config["results"] + "alignments/raw/{seq}{sample}.bam",
+        alignment = config["results"] + "alignments/raw/{sample}.bam",
     threads: 24
     resources: nodes = 24
     conda: "../envs/bio.yaml"
@@ -109,12 +141,13 @@ rule align:
     shell: """
         bash workflow/scripts/align.sh {input.trimmed[0]} {input.trimmed[1]} {input.ref} {output} {threads} {wildcards.sample}"""
 
+
 rule alignment_markdup:
     """Fix mate pairs and mark duplicate reads."""
     input:
-        alignment = config["results"] + "alignments/raw/{seq}{sample}.bam",
+        alignment = config["results"] + "alignments/raw/{sample}.bam",
     output:
-        alignment = config["results"] + "alignments/markdup/{seq}{sample}.bam",
+        alignment = config["results"] + "alignments/markdup/{sample}.bam",
     conda: "../envs/bio.yaml"
     threads: 1
     resources: nodes = 1
@@ -129,22 +162,6 @@ rule alignment_markdup:
         | samtools markdup - {output.alignment} \
             -T ~/tmp/{rule}
         """
-
-# Not currently used.
-# rule merge_like_samples_plus_markdup:
-#     """Combine .bam files from multiple runs of same sample."""
-#     input:
-#         split_alignments = lambda wildcards: expand(config["results"] + "alignments/markdup/{seq}{sample}.bam",
-#             sample=wildcards.sample,
-#             run=RUNS[wildcards.sample]),
-#     output:
-#         merged_alignment = config["results"] + "alignments/merged/{sample}.bam",
-#     threads: 1
-#     resources: nodes = 1
-#     shell: """
-#         samtools merge {input.split_alignments} \
-#             -o {output.merged_alignment}
-#         """
 
 ## Base recalibration
 rule base_recalibration:
@@ -176,7 +193,7 @@ rule apply_base_recalibration:
         ref = config["ref_fasta"],
         ref_idx = config["ref_fasta"] + ".fai",
         ref_dict = ".".join(config["ref_fasta"].split(".")[:-2]) + ".dict",
-        bam = config["results"] + "alignments/{sample}.bam",
+        bam = config["results"] + "alignments/markdup/{sample}.bam",
         recal = config["results"] + "alignments/recalibrated/recal_tables/{sample}.BQSR.recal",
     output:
         config["results"] + "alignments/recalibrated/{sample}.bam",
@@ -237,10 +254,13 @@ rule create_sample_map:
                 sample = gvcf.split("/")[-1].split(".")[0]
                 sample_map.write(f"{sample}\t{gvcf}\n")
 
-rule find_chromosomes:
-    """Find all chromosomes from reference genome. Each line of the output file is just one chromosome's name."""
+rule list_chromosomes:
+    """Find all chromosomes from headers of reference genome.
+    
+     Each line of the output file is just one chromosome's name.
+     The search only keeps numbered chromosomes (not those prefixed with "chr") as well as X, Y, and MT. Unplaced contigs are ignored."""
     input:
-        config["ref_fasta"],  # Or something different
+        ref = config["ref_fasta"],
     output:
         config["results"] + "db/chromosomes.list",
     threads: 1
@@ -248,7 +268,7 @@ rule find_chromosomes:
     conda: "../envs/bio.yaml"
     # Still need to generalize for whatever the count of chromosomes are.
     shell: """
-        echo {{1..20}} | awk -v RS=' ' '{{print $1}} END {{print "X\\nY\\nMT"}}' > {output}
+        zcat {input.ref} | grep "^>" | cut -c 2- | cut -d " " -f 1 | grep -x -E "^[0-9]+|X|Y|MT" > {output}
         """
 
 rule consolidate:
@@ -290,30 +310,6 @@ rule joint_call_cohort:
         # This .txt file is, however, is created only after the datastore has finished being built.
         db = config["results"] + "db/created_{workspace}.txt",
     output:
-        vcf = config["results"] + "joint_call/{workspace}.vcf.gz",
-        vcf_idx = config["results"] + "joint_call/{workspace}.vcf.gz.tbi",
-    params:
-        db = config["results"] + "db/{workspace}",
-    threads: 1
-    resources: nodes = 1
-    conda: "../envs/gatk.yaml"
-    # Versions of GATK starting with 4.2.3.0 stop using "./." for missing genotypes and instead use "0/0".
-    # This difference effects downstream analysis when converting into PLINK format.
-    # And so, an earlier version must be used.
-    shell: """
-        gatk-4.2.2.0 --java-options '-Xmx8g' GenotypeGVCFs \
-            -R {input.ref} \
-            -V gendb://{params.db} \
-            -O {output.vcf}"""
-
-rule joint_call_cohort_per_chromosome:
-    """Use GenomicsDB to jointly call a VCF file."""
-    input:
-        ref = config["ref_fasta"],
-        # Note: The actual text file isn't what is required, but the datastore directory.
-        # This .txt file is, however, is created only after the datastore has finished being built.
-        db = config["results"] + "db/created_{workspace}.txt",
-    output:
         vcf = config["results"] + "joint_call/chr/{workspace}.chr{chr}.vcf.gz",
         vcf_idx = config["results"] + "joint_call/chr/{workspace}.chr{chr}.vcf.gz.tbi",
     params:
@@ -322,7 +318,7 @@ rule joint_call_cohort_per_chromosome:
     resources: nodes = 1
     conda: "../envs/gatk.yaml"
     shell: """
-        gatk-4.2.2.0 --java-options '-Xmx16g' GenotypeGVCFs \
+        gatk --java-options '-Xmx16g' GenotypeGVCFs \
             -R {input.ref} \
             -V gendb://{params.db} \
             -O {output.vcf} \
@@ -333,11 +329,11 @@ rule joint_call_cohort_per_chromosome:
 rule subset_mode:
     """Split into SNP- or indel-only .vcf. The wildcard `mode` can be "SNP" or "indel". Then keeps only biallelic sites."""
     input:
-        vcf = config["results"] + "joint_call/{workspace}.vcf.gz",
-        vcf_index = config["results"] + "joint_call/{workspace}.vcf.gz.tbi",
+        vcf = config["results"] + "joint_call/{dataset}.chr{chr}.vcf.gz",
+        vcf_index = config["results"] + "joint_call/{dataset}.chr{chr}.vcf.gz.tbi",
         ref_fasta = config["ref_fasta"],
     output:
-        split = config["results"] + "joint_call/chr/{workspace}.{mode}.biallelic.vcf.gz",
+        split = config["results"] + "joint_call/chr/{dataset}.{mode}.chr{chr}.biallelic.vcf.gz",
     params:
         equality = lambda wildcards: "=" if wildcards.mode == "indel" else "!=",
     threads: 1

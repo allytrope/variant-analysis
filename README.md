@@ -11,11 +11,12 @@ Once installed, use the below conda commands to obtain the required packages:
 conda install -c conda-forge mamba
 conda install -c bioconda snakemake
 ```
-
-Depending on which part of the workflow is being used, the following may need to be installed as well and must be accessible through `$PATH`:
+Some will still have to be installed manually outside of conda. Depending on which part of the workflow is being used, the following may need to be installed as well and must be accessible through `$PATH`:
+* `gatk`
 * `gtool`
 * `lcMLkin`
-* `shapeit`
+* `makeScaffold`
+* `salmon`
 
 These that aren't available in conda and must be installed using their corresponding download instructions. For example,`lcMLkin` can be cloned from the [GitHub page](https://github.com/COMBINE-lab/maximum-likelihood-relatedness-estimation). 
 
@@ -35,7 +36,52 @@ Other subsequent steps may require their own additional user-created files as we
 
 ## Output
 
-The output files to be generated (as well as all intermediate files) must be set up under `rule all` in the `Snakefile`. For example, if wanting to create `.vcf` files for each dataset referenced in `config.yaml`, change the string in `rule all` to be `"{results}vcf/{dataset}.vcf"`. This requires knowing the directory name as well as the file extension for the desired file. These names can be found under each rule of the `.smk` files in `workflow/rules` under `output`.
+In addition to setting files and variables inside the config files, target outputs (the files that we want to generate) must be listed in the `Snakefile`. When we run, Snakemake will create the files (as well as any intermediates) based on what is listed there.
+
+### Setting Target Files
+
+How to run requires finding the rule in `workflow/rules` for what files are wanted and copying the `output`. For instance, if I want to make .bam files, I can find the corresponding `rule align`, which is in `variant_calling.smk` and find:
+
+```
+output:
+    alignment = config["results"] + "alignments/raw/{sample}.bam",
+```
+
+
+Now, to place inside list of target files back inside our `Snakefile`, making sure to replace `{sample}` with the actual sample name that we are interested in.
+
+```
+rule all:
+    input:
+        config["results"] + "alignments/raw/WGS12345.bam",
+```
+
+Often, many samples will be worked on at the same time. To facilitate this, one could just add more to the target list like so:
+
+```
+rule all:
+    input:
+        config["results"] + "alignments/raw/WGS12345.bam",
+        config["results"] + "alignments/raw/WGS23456.bam",
+```
+
+Although a more efficient way is to utilize the `expand` command:
+
+```
+rule all:
+    input:
+        expand(config["results"] + "alignments/raw/{sample}.bam", sample=[12345, 23456]),
+```
+
+When using many (or all samples), list them in the corresponding file referenced at `config["samples"]` one per line. The file is required for later steps anyway, so helpful to make:
+```
+rule all:
+    input:
+        expand(config["results"] + "alignments/raw/{sample}.bam", sample=SAMPLE_NAMES),
+```
+
+
+up until creation of a GenomicsDB datastore in the directory `db/` and subsequent joint calling of variants. 
 
 
 ## Running
@@ -59,6 +105,15 @@ Besides the generating the files given in the Snakefile's `rule all`, the above 
 
 Make sure to create the directories in which the log files will be placed prior to running to avoid errors.
 
+
 ### Local
 
 Ideally, use the cluster configuration above. Otherwise, to run locally, use: `nohup snakemake --use-conda -c2`. The integer in `-c2` means that two cores will be used. Most rules list the number of threads used, which can be used here. But unlike the cluster method above, this will need to be manually changed. Higher integers (as long as the system has such) will lead to faster processing. This command will leave the error log inside a file in the current directory labelled `nohup.out`.
+
+
+
+### Common Errors
+
+`MissingOutputException` - Usually, can just be rerun and will work. Likely due to system latency. Otherwise, if the same file continues to cause this problem, the rule's output (if any) does not match the file(s) listed under the rule's `output`.
+
+

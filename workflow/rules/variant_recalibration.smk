@@ -18,6 +18,8 @@ rule split_into_truth_and_training:
     output: vcf = "{path}/truth_and_training/{name}.{resource}.vcf.gz",
     params: inequality = lambda wildcards: truth_or_training(wildcards.resource),
             threshold = 60,
+    threads: 1
+    resources: nodes = 1
     conda: "../envs/gatk.yaml"
     shell: """
         gatk VariantFiltration \
@@ -31,6 +33,8 @@ rule remove_filtered_from_truth_or_training:
     """Remove variants that have been filtered."""
     input: vcf = "{path}/truth_and_training/{name}.chr{chr}.{mode}.{resource}.vcf.gz",
     output: vcf = "{path}/truth_and_training_removed/{name}.chr{chr}.{mode}.{resource}.vcf.gz",
+    threads: 1
+    resources: nodes = 1
     conda: "../envs/bio.yaml"
     shell: """
         bcftools view -f PASS {input.vcf} -Oz > {output.vcf}
@@ -46,69 +50,83 @@ def an_flags(mode):
 rule variant_recalibration:
     """Build a recalibration model. Can be run in "SNP" or "indel" mode depending on which string is used for the wildcard `mode`.
     Note that this rule requires more memory than most."""
-    input: ref = config["ref_fasta"],
-           ref_idx = config["ref_fasta"] + ".fai",
-           ref_dict = ".".join(CONFIG["ref_fasta"].split(".")[:-2]) + ".dict",  # Replaces the ".fna.gz" ending with ".dict"
-           vcf = config["results"] + "joint_call/split/{workspace}.{mode}.biallelic.vcf.gz",  # Location to be changed
-           vcf_idx = config["results"] + "joint_call/split/{workspace}.{mode}.biallelic.vcf.gz.tbi",
-           truth = lambda wildcards: config["variant_calling"][wildcards.mode]["VQSR_truth_vcf"],
-           truth_idx = lambda wildcards: config["variant_calling"][wildcards.mode]["VQSR_truth_vcf"] + ".tbi",
-           training = lambda wildcards: config["variant_calling"][wildcards.mode]["VQSR_training_vcf"],
-           training_idx = lambda wildcards: config["variant_calling"][wildcards.mode]["VQSR_training_vcf"] + ".tbi",
-           #known = lambda wildcards: CONFIG[wildcards.mode]["VQSR_known_vcf"],
-           #known_idx = lambda wildcards: CONFIG[wildcards.mode]["VQSR_known_vcf"] + ".tbi",
-    output: recal = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.recal",
-            recal_idx = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.recal.idx",
-            tranches = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.tranches",
-            tranches_pdf = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.tranches.pdf",
-            fig = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.fig",
-            fig_pdf = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.fig.pdf",
+    input:
+        ref = config["ref_fasta"],
+        ref_idx = config["ref_fasta"] + ".fai",
+        ref_dict = ".".join(config["ref_fasta"].split(".")[:-2]) + ".dict",  # Replaces the ".fna.gz" ending with ".dict"
+        vcf = config["results"] + "joint_call/split/{workspace}.{mode}.biallelic.vcf.gz",  # Location to be changed
+        vcf_idx = config["results"] + "joint_call/split/{workspace}.{mode}.biallelic.vcf.gz.tbi",
+        truth = lambda wildcards: config["variant_calling"][wildcards.mode]["VQSR_truth_vcf"],
+        truth_idx = lambda wildcards: config["variant_calling"][wildcards.mode]["VQSR_truth_vcf"] + ".tbi",
+        training = lambda wildcards: config["variant_calling"][wildcards.mode]["VQSR_training_vcf"],
+        training_idx = lambda wildcards: config["variant_calling"][wildcards.mode]["VQSR_training_vcf"] + ".tbi",
+        #known = lambda wildcards: CONFIG[wildcards.mode]["VQSR_known_vcf"],
+        #known_idx = lambda wildcards: CONFIG[wildcards.mode]["VQSR_known_vcf"] + ".tbi",
+    output:
+        recal = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.recal",
+        recal_idx = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.recal.idx",
+        tranches = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.tranches",
+        tranches_pdf = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.tranches.pdf",
+        fig = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.fig",
+        fig_pdf = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.fig.pdf",
     threads: 1
+    resources: nodes = 1
     conda: "../envs/gatk.yaml"
-    params: mode = lambda wildcards: wildcards.mode.upper(),
-            an_flags = lambda wildcards: an_flags(wildcards.mode),
-            truth_prior = lambda wildcards: config["variant_calling"][wildcards.mode]["VQSR_truth_prior"],
-            training_prior = lambda wildcards: config["variant_calling"][wildcards.mode]["VQSR_training_prior"],
-            #known_prior = lambda wildcards: CONFIG[wildcards.mode]["VQSR_known_prior"],
-            tmp_dir = config["results"] + "VQSR/model/tmp/"
+    params:
+        mode = lambda wildcards: wildcards.mode.upper(),
+        an_flags = lambda wildcards: an_flags(wildcards.mode),
+        truth_prior = lambda wildcards: config["variant_calling"][wildcards.mode]["VQSR_truth_prior"],
+        training_prior = lambda wildcards: config["variant_calling"][wildcards.mode]["VQSR_training_prior"],
+        #known_prior = lambda wildcards: CONFIG[wildcards.mode]["VQSR_known_prior"],
+        tmp_dir = config["results"] + "VQSR/model/tmp/",
     # --resource:known,known=true,truth=false,training=false,prior={params.known_prior} {input.known} \
-    shell: "gatk --java-options '-Xmx24g' VariantRecalibrator \
-                -R {input.ref} \
-                -V {input.vcf} \
-                -O {output.recal} \
-                --resource:truth,known=false,truth=true,training=true,prior={params.truth_prior} {input.truth} \
-                --resource:training,known=false,truth=false,training=true,prior={params.training_prior} {input.training} \
-                {params.an_flags} \
-                -mode {params.mode} \
-                --tranches-file {output.tranches} \
-                --rscript-file {output.fig} \
-                --tmp-dir ~/tmp/{rule}"
+    shell: """
+        gatk --java-options '-Xmx24g' VariantRecalibrator \
+            -R {input.ref} \
+            -V {input.vcf} \
+            -O {output.recal} \
+            --resource:truth,known=false,truth=true,training=true,prior={params.truth_prior} {input.truth} \
+            --resource:training,known=false,truth=false,training=true,prior={params.training_prior} {input.training} \
+            {params.an_flags} \
+            -mode {params.mode} \
+            --tranches-file {output.tranches} \
+            --rscript-file {output.fig} \
+            --tmp-dir ~/tmp/{rule}"""
 
 rule apply_variant_recalibration:
     """Apply recalibration model. Can be run in "SNP" or "indel" mode depending on which string is used for the wildcard `mode`."""
-    input: ref = config["ref_fasta"],
-           ref_idx = config["ref_fasta"] + ".fai",
-           vcf = config["results"] + "joint_call/split/{workspace}.{mode}.biallelic.vcf.gz",
-           vcf_idx = config["results"] + "joint_call/split/{workspace}.{mode}.biallelic.vcf.gz.tbi",
-           recal = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.recal",
-           tranches = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.tranches",
-    output: config["results"] + "VQSR/filter_applied/{workspace}.{mode}.biallelic.recalibrated.vcf.gz",
+    input:
+        ref = config["ref_fasta"],
+        ref_idx = config["ref_fasta"] + ".fai",
+        vcf = config["results"] + "joint_call/split/{workspace}.{mode}.biallelic.vcf.gz",
+        vcf_idx = config["results"] + "joint_call/split/{workspace}.{mode}.biallelic.vcf.gz.tbi",
+        recal = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.recal",
+        tranches = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.tranches",
+    output:
+        config["results"] + "VQSR/filter_applied/{workspace}.{mode}.biallelic.recalibrated.vcf.gz",
+    params:
+        mode = lambda wildcards: wildcards.mode.upper(),
     threads: 1
+    resources: nodes = 1
     conda: "../envs/gatk.yaml"
-    params: mode = lambda wildcards: wildcards.mode.upper(),
-    shell: "gatk --java-options '-Xmx24g' ApplyVQSR \
-                -R {input.ref} \
-                -V {input.vcf} \
-                -O {output} \
-                -mode {params.mode} \
-                --recal-file {input.recal} \
-                --tranches-file {input.tranches}"
+    shell: """
+        gatk --java-options '-Xmx24g' ApplyVQSR \
+            -R {input.ref} \
+            -V {input.vcf} \
+            -O {output} \
+            -mode {params.mode} \
+            --recal-file {input.recal} \
+            --tranches-file {input.tranches}"""
 
 rule pass_only:
     """Remove variants that have been filtered."""
     wildcard_constraints: mode = "SNP|indel",
-    input: vcf = config["results"] + "{filter_method}/filter_applied/{workspace}.{mode}.biallelic.recalibrated.vcf.gz",
-    output: vcf = config["results"] + "{filter_method}/pass_only/{workspace}.{mode}.biallelic.recalibrated.pass_only.vcf.gz",
+    input:
+        vcf = config["results"] + "{filter_method}/filter_applied/{workspace}.{mode}.biallelic.recalibrated.vcf.gz",
+    output:
+        vcf = config["results"] + "{filter_method}/pass_only/{workspace}.{mode}.biallelic.recalibrated.pass_only.vcf.gz",
+    threads: 1
+    resources: nodes = 1
     conda: "../envs/bio.yaml"
     shell: """
         bcftools view {input.vcf} \

@@ -1,6 +1,5 @@
 """Rules for creating various types of index files."""
 
-## Creating indicies
 rule index_ref:
     """Create BWA index files for reference genome."""
     input: config["ref_fasta"],
