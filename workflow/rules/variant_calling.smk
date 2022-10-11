@@ -141,13 +141,14 @@ rule align:
     shell: """
         bash workflow/scripts/align.sh {input.trimmed[0]} {input.trimmed[1]} {input.ref} {output} {threads} {wildcards.sample}"""
 
-
-rule alignment_markdup:
+rule alignment_postprocessing:
     """Fix mate pairs and mark duplicate reads."""
+    wildcard_constraints:
+        seq = "WES|WGS",
     input:
-        alignment = config["results"] + "alignments/raw/{sample}.bam",
+        alignment = config["results"] + "alignments/raw/{seq}{organism_id}.bam",
     output:
-        alignment = config["results"] + "alignments/markdup/{sample}.bam",
+        alignment = config["results"] + "alignments/markdup/{seq}{organism_id}.bam",
     conda: "../envs/bio.yaml"
     threads: 1
     resources: nodes = 1
@@ -160,7 +161,30 @@ rule alignment_markdup:
         | samtools sort - \
             -T ~/tmp/{rule} \
         | samtools markdup - {output.alignment} \
-            -T ~/tmp/{rule}
+            -T ~/tmp/{rule} \
+        """
+
+rule alignment_postprocessing_AMP_GBS:
+    """Fix mate pairs and sort reads. This implementation for AMP and GBS data doesn't mark duplicates
+    due to the large false positive rate of duplicates in these sequencing methods."""
+    wildcard_constraints:
+        seq = "AMP|GBS",
+    input:
+        alignment = config["results"] + "alignments/raw/{seq}{organism_id}.bam",
+    output:
+        alignment = config["results"] + "alignments/markdup/{seq}{organism_id}.bam",
+    conda: "../envs/bio.yaml"
+    threads: 1
+    resources: nodes = 1
+    shell: """
+        samtools sort {input.alignment} \
+            -n \
+            -T ~/tmp/{rule} \
+        | samtools fixmate - - \
+            -m \
+        | samtools sort - \
+            -T ~/tmp/{rule} \
+            -o {output.alignment} \
         """
 
 ## Base recalibration
@@ -200,7 +224,6 @@ rule apply_base_recalibration:
     threads: 1
     resources: nodes = 1
     conda: "../envs/gatk.yaml"
-    # Telling not to make bam index since it automatically writes as 
     shell: """
         gatk --java-options '-Xmx8g' ApplyBQSR \
             -R {input.ref} \
@@ -211,7 +234,6 @@ rule apply_base_recalibration:
             --create-output-bam-index false"""
 
 ## Variant calling
-# Modified input to skip recalibration
 rule call_variants:
     """Call variants to make VCF file."""
     input:
@@ -238,19 +260,16 @@ rule create_sample_map:
     """Create sample map that contains names and paths to all VCFs to be used in consolidate rule.
     Note: This output file will need to be deleted if changing what will be added in the consolidate rule."""
     input:
-        gvcfs = expand("{results}gvcf/{sample}.g.vcf.gz", results=config["results"], sample=SAMPLE_NAMES),
+        gvcfs = expand("{results}gvcf/{sample}.g.vcf.gz",
+            results=config["results"],
+            sample=SAMPLE_NAMES),
     output:
-        sample_map = config["results"] + "db/{workspace}.sample_map",
-    params:
-        in_path = config["results"] + "gvcf/",
-        samples = SAMPLE_NAMES,
+        sample_map = temp(config["results"] + "db/{dataset}.sample_map"),
     threads: 1
     resources: nodes = 1
     run:
         with open(output.sample_map, "w") as sample_map:
-            print("Type", type(input.gvcfs))
             for gvcf in input.gvcfs:
-                print("gvcf", gvcf)
                 sample = gvcf.split("/")[-1].split(".")[0]
                 sample_map.write(f"{sample}\t{gvcf}\n")
 
@@ -258,7 +277,8 @@ rule list_chromosomes:
     """Find all chromosomes from headers of reference genome.
     
      Each line of the output file is just one chromosome's name.
-     The search only keeps numbered chromosomes (not those prefixed with "chr") as well as X, Y, and MT. Unplaced contigs are ignored."""
+     The search only keeps numbered chromosomes (not those prefixed with "chr" or any other letters)
+     as well as X, Y, and MT. Unplaced contigs are ignored."""
     input:
         ref = config["ref_fasta"],
     output:
@@ -266,7 +286,6 @@ rule list_chromosomes:
     threads: 1
     resources: nodes = 1
     conda: "../envs/bio.yaml"
-    # Still need to generalize for whatever the count of chromosomes are.
     shell: """
         zcat {input.ref} | grep "^>" | cut -c 2- | cut -d " " -f 1 | grep -x -E "^[0-9]+|X|Y|MT" > {output}
         """
@@ -275,11 +294,11 @@ rule consolidate:
     """Combine the chromosomes of .g.vcf files into GenomicsDB datastore."""
     input:
         contigs = config["results"] + "db/chromosomes.list",
-        sample_map = config["results"] + "db/{workspace}.sample_map",
+        sample_map = config["results"] + "db/{dataset}.sample_map",
     output:
-        config["results"] + "db/created_{workspace}.txt",
+        config["results"] + "db/created_{dataset}.txt",
     params:
-        db = config["results"] + "db/{workspace}",
+        db = config["results"] + "db/{dataset}",
         parallel_intervals = 4,  # Higher value requires more memory and number of file descriptor able to be used at the same time
     threads: 2  # Just for opening multiple .vcf files at once.
     resources: nodes = 2
@@ -308,12 +327,12 @@ rule joint_call_cohort:
         ref = config["ref_fasta"],
         # Note: The actual text file isn't what is required, but the datastore directory.
         # This .txt file is, however, is created only after the datastore has finished being built.
-        db = config["results"] + "db/created_{workspace}.txt",
+        db = config["results"] + "db/created_{dataset}.txt",
     output:
-        vcf = config["results"] + "joint_call/chr/{workspace}.chr{chr}.vcf.gz",
-        vcf_idx = config["results"] + "joint_call/chr/{workspace}.chr{chr}.vcf.gz.tbi",
+        vcf = config["results"] + "joint_call/polyallelic/{dataset}.chr{chr}.vcf.gz",
+        #tbi = config["results"] + "joint_call/polyallelic/{dataset}.chr{chr}.vcf.gz.tbi",
     params:
-        db = config["results"] + "db/{workspace}",
+        db = config["results"] + "db/{dataset}",
     threads: 1
     resources: nodes = 1
     conda: "../envs/gatk.yaml"
@@ -326,14 +345,14 @@ rule joint_call_cohort:
         """
 
 ## Split SNPs and indels
-rule subset_mode:
-    """Split into SNP- or indel-only .vcf. The wildcard `mode` can be "SNP" or "indel". Then keeps only biallelic sites."""
+rule biallelics_by_mode:
+    """Split into SNP- or indel-only .vcf. Then keeps only biallelic sites."""
     input:
-        vcf = config["results"] + "joint_call/{dataset}.chr{chr}.vcf.gz",
-        vcf_index = config["results"] + "joint_call/{dataset}.chr{chr}.vcf.gz.tbi",
+        vcf = config["results"] + "joint_call/polyallelic/{dataset}.chr{chr}.vcf.gz",
+        tbi = config["results"] + "joint_call/polyallelic/{dataset}.chr{chr}.vcf.gz.tbi",
         ref_fasta = config["ref_fasta"],
     output:
-        split = config["results"] + "joint_call/chr/{dataset}.{mode}.chr{chr}.biallelic.vcf.gz",
+        split = config["results"] + "joint_call/biallelic/{dataset}.{mode}.chr{chr}.vcf.gz",
     params:
         equality = lambda wildcards: "=" if wildcards.mode == "indel" else "!=",
     threads: 1
@@ -362,6 +381,7 @@ rule subset_mode:
             -Ou \
         | bcftools view \
             -M2 \
+            -m2 \
             -Oz \
             -o {output.split} \
         """
