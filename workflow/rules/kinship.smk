@@ -28,8 +28,8 @@ rule create_bed:
 rule create_pileup:
     """Create .pileup file for a sample."""
     input: bed = DIR + PREFIX + ".bed",
-           ref_fasta = CONFIG["ref_fasta"],
-           ref_fasta_idx = CONFIG["ref_fasta"] + ".fai",
+           ref_fasta = config["ref_fasta"],
+           ref_fasta_idx = config["ref_fasta"] + ".fai",
            bam = config["results"] + "alignments_recalibrated/{sample}.bam",  ## From bwa-mem in `variant_calling.smk`
     output: pileup = DIR + "pileup/{sample}.pileup",
     conda: "../envs/kinship.yaml"
@@ -41,7 +41,7 @@ rule create_pileup:
 
 rule create_seq:
     """Create .seq file for LASER."""
-    input: ref_fasta = CONFIG["ref_fasta"],
+    input: ref_fasta = config["ref_fasta"],
            site = DIR + PREFIX + ".site",
            pileups = expand("{dir}pileup/{sample}.pileup", dir=DIR, sample=SAMPLE_NAMES)
     output: seq = DIR + PREFIX + ".seq",
@@ -85,7 +85,7 @@ rule laser:
 
 rule model_AF:
     """Model allele frequencies as linear functions of PCs based on the ancestry reference panel."""
-    input: vcf = CONFIG["ref_vcf"],  # genotypes of reference individuals (.vcf.gz)
+    input: vcf = config["ref_vcf"],  # genotypes of reference individuals (.vcf.gz)
            ref_coord = DIR + "RefPC.coord",  # PCA coordinates of reference individuals
     output: DIR + "AF.model",
     threads: 1

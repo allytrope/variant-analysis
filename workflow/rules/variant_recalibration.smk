@@ -54,8 +54,8 @@ rule variant_recalibration:
         ref = config["ref_fasta"],
         ref_idx = config["ref_fasta"] + ".fai",
         ref_dict = ".".join(config["ref_fasta"].split(".")[:-2]) + ".dict",  # Replaces the ".fna.gz" ending with ".dict"
-        vcf = config["results"] + "joint_call/split/{workspace}.{mode}.biallelic.vcf.gz",  # Location to be changed
-        vcf_idx = config["results"] + "joint_call/split/{workspace}.{mode}.biallelic.vcf.gz.tbi",
+        vcf = config["results"] + "joint_call/split/{dataset}.{mode}.biallelic.vcf.gz",  # Location to be changed
+        vcf_idx = config["results"] + "joint_call/split/{dataset}.{mode}.biallelic.vcf.gz.tbi",
         truth = lambda wildcards: config["variant_calling"][wildcards.mode]["VQSR_truth_vcf"],
         truth_idx = lambda wildcards: config["variant_calling"][wildcards.mode]["VQSR_truth_vcf"] + ".tbi",
         training = lambda wildcards: config["variant_calling"][wildcards.mode]["VQSR_training_vcf"],
@@ -63,12 +63,12 @@ rule variant_recalibration:
         #known = lambda wildcards: CONFIG[wildcards.mode]["VQSR_known_vcf"],
         #known_idx = lambda wildcards: CONFIG[wildcards.mode]["VQSR_known_vcf"] + ".tbi",
     output:
-        recal = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.recal",
-        recal_idx = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.recal.idx",
-        tranches = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.tranches",
-        tranches_pdf = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.tranches.pdf",
-        fig = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.fig",
-        fig_pdf = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.fig.pdf",
+        recal = config["results"] + "VQSR/model/{dataset}.{mode}.biallelic.recal",
+        recal_idx = config["results"] + "VQSR/model/{dataset}.{mode}.biallelic.recal.idx",
+        tranches = config["results"] + "VQSR/model/{dataset}.{mode}.biallelic.tranches",
+        tranches_pdf = config["results"] + "VQSR/model/{dataset}.{mode}.biallelic.tranches.pdf",
+        fig = config["results"] + "VQSR/model/{dataset}.{mode}.biallelic.fig",
+        fig_pdf = config["results"] + "VQSR/model/{dataset}.{mode}.biallelic.fig.pdf",
     threads: 1
     resources: nodes = 1
     conda: "../envs/gatk.yaml"
@@ -98,12 +98,12 @@ rule apply_variant_recalibration:
     input:
         ref = config["ref_fasta"],
         ref_idx = config["ref_fasta"] + ".fai",
-        vcf = config["results"] + "joint_call/split/{workspace}.{mode}.biallelic.vcf.gz",
-        vcf_idx = config["results"] + "joint_call/split/{workspace}.{mode}.biallelic.vcf.gz.tbi",
-        recal = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.recal",
-        tranches = config["results"] + "VQSR/model/{workspace}.{mode}.biallelic.tranches",
+        vcf = config["results"] + "joint_call/split/{dataset}.{mode}.biallelic.vcf.gz",
+        vcf_idx = config["results"] + "joint_call/split/{dataset}.{mode}.biallelic.vcf.gz.tbi",
+        recal = config["results"] + "VQSR/model/{dataset}.{mode}.biallelic.recal",
+        tranches = config["results"] + "VQSR/model/{dataset}.{mode}.biallelic.tranches",
     output:
-        config["results"] + "VQSR/filter_applied/{workspace}.{mode}.biallelic.recalibrated.vcf.gz",
+        config["results"] + "VQSR/filter_applied/{dataset}.{mode}.biallelic.recalibrated.vcf.gz",
     params:
         mode = lambda wildcards: wildcards.mode.upper(),
     threads: 1
@@ -122,9 +122,9 @@ rule pass_only:
     """Remove variants that have been filtered."""
     wildcard_constraints: mode = "SNP|indel",
     input:
-        vcf = config["results"] + "{filter_method}/filter_applied/{workspace}.{mode}.biallelic.recalibrated.vcf.gz",
+        vcf = config["results"] + "{filter_method}/filter_applied/{dataset}.{mode}.biallelic.recalibrated.vcf.gz",
     output:
-        vcf = config["results"] + "{filter_method}/pass_only/{workspace}.{mode}.biallelic.recalibrated.pass_only.vcf.gz",
+        vcf = config["results"] + "{filter_method}/pass_only/{dataset}.{mode}.biallelic.recalibrated.pass_only.vcf.gz",
     threads: 1
     resources: nodes = 1
     conda: "../envs/bio.yaml"
