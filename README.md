@@ -25,13 +25,15 @@ Other necessary libraries have packages and versions stored in `workflow/envs`. 
 
 ## Configuration
 
-Configuration settings are set with a `.yaml` file inside the directory `config`. Multiple config files can exist for convenient testing with different datasets. The name of the desired config file for a particular run, however, should be set for `configfile` in `workflow/Snakefile`. The config file should be filled out to include any starting datasets such as `.fastq.gz` files for all individuals to be analyzed and a reference genome for the species.
+Configuration settings are set with a `.py` file inside the directory `config`. By default, the file `template.py` is active. Though this file should be modified or a new one made. Multiple config files can exist for convenient testing with different datasets. The name of the desired config file for a particular run, however, should be set in `workflow/Snakefile` on the line that says `from template import __dict__ as config`. For example, say we create a new config `rhesus.py`. This file would then be imported by changing `template` in that line to `rhesus`.
 
-Initial required files for first steps of variant calling are the following.
-* Reference genome
+Initial required files to add to config file for first steps of variant calling are the following.
+* Species reference genome
 * Raw FASTQ files (ending with `R1.fastq.gz` and `R2.fastq.gz`)
 
-Other subsequent steps may require their own additional user-created files as well, which can all be specified here in the config file.
+Other subsequent steps require their own additional user-created files as well, which can all be specified in the config file.
+
+Also, be sure to set the value for `path` to set where the `resources/` and `results/` directory should go.
 
 
 ## Output

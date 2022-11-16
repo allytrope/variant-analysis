@@ -2,8 +2,6 @@
 # If variant_calling.smk created a VCF containing WGS data mixed with WES or GBS,
 # they should be split for the next step and given different `-an` metrics.
 
-CONFIG = config["variant_calling"]
-
 
 ## Prepare truth and training from single .vcf (for when separate files don't exist)
 def truth_or_training(string):

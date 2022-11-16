@@ -2,12 +2,15 @@
 To change the output produced by the command, add required files to `input` under `rule all`.
 The corresponding config file for the project can be written under `configfile`."""
 
+import sys
+sys.path.insert(0, "./config")
+
 from collections import defaultdict
 import os
 from pathlib import Path
 
 # A different config file can be set here.
-configfile: "config/rhesus.yaml"
+from template import __dict__ as config
 
 # Create defaultdict of runs for samples.
 # RUNS = defaultdict(set)
@@ -28,9 +31,6 @@ if Path(config["results"] + "db/chromosomes.list").is_file():
 else:
     print("No chromosome file yet.")
 
-# Project-specific variables
-
-
 # For command that use bash specific syntax, these have to activated. Although they may only work with the bio environment.
 #shell.executable("/bin/bash")
 shell.prefix("source ~/.bash_profile; ")
@@ -40,15 +40,16 @@ wildcard_constraints:
     filter_method = "hard_filtered|VQSR",
     #organism_id = "\w+",
     mode = "SNP|indel",
-    name = "[A-Za-z0-9_\.]+",
+    name = "[A-Za-z0-9_\.-]+",
     prefix = "[A-Za-z0-9_/]+",
-    #path = "[A-Za-z0-9_/]+",
+    path = "[A-Za-z0-9_/\.-]+",
     sample = "\w+",
     sample1 = "\w+",
     sample2 = "\w+",
     seq = "WGS|WES|GBS|AMP",
     workspace="[A-Za-z0-9_\.]+",
 
+include: "rules/directory_structure.smk"
 include: "rules/indices.smk"
 include: "rules/variant_calling.smk"
 include: "rules/variant_recalibration.smk"
@@ -58,7 +59,7 @@ include: "rules/phasing.smk"
 #include: "rules/kinship.smk"
 #include: "rules/relations.smk"
 include: "rules/structural_variation.smk"
-include: "rules/concordance.smk"
+#include: "rules/concordance.smk"
 include: "rules/coverage.smk"
 include: "rules/one_off.smk"
 include: "rules/misc.smk"
