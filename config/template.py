@@ -1,24 +1,32 @@
-"""An area to assign project-specific variables. This is used alongside rhesus.yaml."""
+"""An area to assign project-specific variables."""
+
+from pathlib import Path
+
+from snakemake.io import expand
 
 
+## These may be left unchanged.
 NULL = ""
-
-# Project directories to deposit output files
 project = __file__.split("/")[-1].split(".")[0] + "/"  # Take project name from file name
-location = "/master/username/variant-analysis/"  # Path to variant-analysis directory
-resources = location + "resources/" + project
-results = location + "results/" + project
-log = location + "log/" + project
+
+## Users should add files and paths here.
+# Project directories to deposit output files
+path = "/master/username/variant-analysis/"  # Path to variant-analysis directory
+resources = path + "resources/" + project
+results = path + "results/" + project
+log = path + "log/" + project
 
 # Directory containing FASTQ files
 reads = resources + "reads/"
 
-# Only for GBS. A tab-delimited file with the first column as {organism_id} and the second as the barcode (e.g., AACGTT)
-GBS_barcodes = resources + "barcodes/GBS_barcodes.tsv"
-
-# Only for AMP. A tab-delimited file with the first column as {organism_id},
-# the second as the i7 adapter, and the third as i5 adapter.
-AMP_barcodes = resources + "barcodes/AMP_barcodes.tsv"
+barcodes = {
+    # Only for GBS. A tab-delimited file with the first column as {organism_id} and the second as the barcode (e.g., AACGTT)
+    "GBS_barcodes": resources + "barcodes/GBS_barcodes.tsv",
+    
+    # Only for AMP. A tab-delimited file with the first column as {organism_id},
+    # the second as the i7 adapter, and the third as i5 adapter.
+    "AMP_barcodes": resources + "barcodes/AMP_barcodes.tsv",
+}
 
 # One sample name per line
 samples = resources + "samples/GBS_samples.list"
@@ -28,8 +36,39 @@ ref_fasta = resources + "ref_fna/Macaca_mulatta.Mmul_10.dna.toplevel.fa.gz"  # T
 
 BQSR_known_variants = resources + "ref_vcf/macaca_mulatta.vcf.gz"
 
+# Tab-delimited. Column1 is child id, column2 is sire id, column3 is dam id. Also, remove any names with underscores.
+pedigree = resources + "pedigree/pedigree.tsv",
 
-# These are for a single chromsome
+filtering = {
+    "min_AF": 0.05,
+    "max_AF": 0.95,
+    "min_AC": 10,
+}
+
+## Variables to use in target files (and used in .smk files)
+# Create list of samples
+with open(samples) as f:
+    SAMPLE_NAMES = f.read().splitlines()
+print(SAMPLE_NAMES)
+
+# Create list of chromosomes
+if Path(results + "db/chromosomes.list").is_file():
+    with open(results + "db/chromosomes.list") as f:
+        CHROMOSOMES = f.read().splitlines()
+    print(CHROMOSOMES)
+else:
+    print("No chromosome file yet.")
+
+# Files to create. The paths can be found as under "output" in the rules of .smk files.
+# Every output should start with "results" to direct to the correct path.
+# A simple target file:
+# results + "haplotypes/SHAPEIT4/all_animals.SNP.chr17.vcf.gz",
+# Example of a more complex target file:
+# expand(results + "vcf/{sample}.g.vcf.gz", sample=SAMPLE_NAMES)
+target_files = [
+]
+
+## Less often used values. Sections of code that use these will likely need reworked.
 SNP_VQSR_truth_vcf = resources + "truth_and_training/GbS_Common_snps79typed.recode.vcf.gz"
 SNP_VQSR_truth_prior = 15.0
 SNP_VQSR_training_vcf = resources + "truth_and_training/marmoset_gbs_pass_filter_vep_recal_beagle.vcf.gz"
@@ -87,7 +126,6 @@ pop_dir = NULL
 pops = NULL
 
 # PEDSYS-generated pedigree
-pedigree = NULL
 map = NULL
 parents_table =None
 sex_table = None
@@ -98,14 +136,3 @@ covergae = {
     # Minimum read depth to include for all samples.
     "cutoff": 0.9,
 }
-
-# Files to be generated (not currently using)
-target_files = [
-    "README.md",
-    # User defined input goes below
-    # These are two examples of how to structure desired files
-    ## expand("{results}vcf/{sample}.g.vcf.gz", results=config["results"], sample=SAMPLE_NAMES)
-    ## config["results"] + "db/cohort.sample_map"
-    #expand(config["results"] + "genotypes/filtered/GBS_WES_WGS_labels.SNP.filtered.vcf.gz", chr=RHESUS_CHROMOSOMES),
-    "alignments/raw/GBS16356.bam",
-    ]

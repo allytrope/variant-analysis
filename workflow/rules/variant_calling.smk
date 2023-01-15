@@ -14,7 +14,7 @@ rule cut_adapters_with_i5_i7:
     Additionally, this assumes that the Truseq Dual Index Library was used for the adapters surrounding the i7 and i5 ones.
     These are hard coded under "params". The i7 information is used for finding the adapters in R1 and then i5 for R2."""
     wildcard_constraints:
-        seq = "WGS|WES",
+        seq = "WGS|WES|AMP",
     input: 
         reads = lambda wildcards: expand(config["reads"] + "{seq}{organism_id}.{read}.fastq.gz",
             seq=wildcards.seq,
@@ -32,11 +32,11 @@ rule cut_adapters_with_i5_i7:
     resources: nodes = 4
     conda: "../envs/bio.yaml"
     shell: """
-        ADAPTERS=$(gunzip -c {input.reads[0]} | head -n 1 | cut -d " " -f 2 | cut -d ":" -f 4);
-        i7=$(echo $ADAPTERS | cut -d "+" -f 1);
-        i5=$(echo $ADAPTERS | cut -d "+" -f 2);
-        R1_END_ADAPTER="{params.pre_i7}${{i7}}{params.post_i7}";
-        R2_END_ADAPTER="{params.pre_i5}${{i5}}{params.post_i5}";
+        # ADAPTERS=$(gunzip -c {input.reads[0]} | head -n 1 | cut -d " " -f 2 | cut -d ":" -f 4);
+        # i7=$(echo $ADAPTERS | cut -d "+" -f 1);
+        # i5=$(echo $ADAPTERS | cut -d "+" -f 2);
+        R1_END_ADAPTER="{params.pre_i7}";  # ${{i7}}{params.post_i7}";
+        R2_END_ADAPTER="{params.pre_i5}";  # ${{i5}}{params.post_i5}";
         cutadapt {input.reads} \
             -a $R1_END_ADAPTER \
             -A $R2_END_ADAPTER \
@@ -44,42 +44,42 @@ rule cut_adapters_with_i5_i7:
             -o {output.trimmed[0]} \
             -p {output.trimmed[1]}"""
 
-rule cut_adapters_with_i5_i7_AMP:
-    """Cut out 3' end adapters using i7 and i5 adapter information.
+# rule cut_adapters_with_i5_i7_AMP:
+#     """Cut out 3' end adapters using i7 and i5 adapter information.
     
-    This implementation takes i7 and i5 values from a barcodes file.
-    Additionally, this assumes that the Truseq Dual Index Library was used for the adapters surrounding the i7 and i5 ones.
-    These are hard coded under "params". The i7 information is used for finding the adapters in R1 and then i5 for R2."""
-    wildcard_constraints:
-        seq = "AMP",
-    input: 
-        reads = lambda wildcards: expand(config["reads"] + "{seq}{organism_id}.{read}.fastq.gz",
-            seq=wildcards.seq,
-            organism_id=wildcards.organism_id,
-            read=["R1", "R2"]),
-        barcodes = config["AMP_barcodes"],
-    output: 
-        trimmed = expand(config["results"] + "trimmed/{{seq}}{{organism_id}}.{read}.fastq.gz",
-            read=["R1", "R2"]),
-    params: 
-        pre_i7 = "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC",
-        post_i7 = "ATCTCGTATGCCGTCTTCTGCTTG",
-        pre_i5 = "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
-        post_i5 = "GTGTAGATCTCGGTGGTCGCCGTATCATT",
-    threads: 4
-    resources: nodes = 4
-    conda: "../envs/bio.yaml"
-    shell: """
-        i7=$(grep -P "^{wildcards.organism_id}\t" {input.barcodes} | cut -f 2);
-        i5=$(grep -P "^{wildcards.organism_id}\t" {input.barcodes} | cut -f 3);
-        R1_END_ADAPTER="{params.pre_i7}${{i7}}{params.post_i7}";
-        R2_END_ADAPTER="{params.pre_i5}${{i5}}{params.post_i5}";
-        cutadapt {input.reads} \
-            -a $R1_END_ADAPTER \
-            -A $R2_END_ADAPTER \
-            --cores {threads} \
-            -o {output.trimmed[0]} \
-            -p {output.trimmed[1]}"""
+#     This implementation takes i7 and i5 values from a barcodes file.
+#     Additionally, this assumes that the Truseq Dual Index Library was used for the adapters surrounding the i7 and i5 ones.
+#     These are hard coded under "params". The i7 information is used for finding the adapters in R1 and then i5 for R2."""
+#     wildcard_constraints:
+#         seq = "AMP",
+#     input: 
+#         reads = lambda wildcards: expand(config["reads"] + "{seq}{organism_id}.{read}.fastq.gz",
+#             seq=wildcards.seq,
+#             organism_id=wildcards.organism_id,
+#             read=["R1", "R2"]),
+#         barcodes = config["barcodes"]["AMP_barcodes"],
+#     output: 
+#         trimmed = expand(config["results"] + "trimmed/{{seq}}{{organism_id}}.{read}.fastq.gz",
+#             read=["R1", "R2"]),
+#     params: 
+#         pre_i7 = "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC",
+#         post_i7 = "ATCTCGTATGCCGTCTTCTGCTTG",
+#         pre_i5 = "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
+#         post_i5 = "GTGTAGATCTCGGTGGTCGCCGTATCATT",
+#     threads: 4
+#     resources: nodes = 4
+#     conda: "../envs/bio.yaml"
+#     shell: """
+#         i7=$(grep -P "^{wildcards.organism_id}\t" {input.barcodes} | cut -f 2);
+#         i5=$(grep -P "^{wildcards.organism_id}\t" {input.barcodes} | cut -f 3);
+#         R1_END_ADAPTER="{params.pre_i7}${{i7}}{params.post_i7}";
+#         R2_END_ADAPTER="{params.pre_i5}${{i5}}{params.post_i5}";
+#         cutadapt {input.reads} \
+#             -a $R1_END_ADAPTER \
+#             -A $R2_END_ADAPTER \
+#             --cores {threads} \
+#             -o {output.trimmed[0]} \
+#             -p {output.trimmed[1]}"""
 
 def find_barcode(wildcards, input):
     """Pull sample barcode from barcodes file, which contains reverse complements for R2."""
@@ -98,7 +98,7 @@ rule cut_GBS_adapters:
             seq=wildcards.seq,
             organism_id=wildcards.organism_id,
             read=["R1", "R2"]),
-        barcodes = config["GBS_barcodes"],
+        barcodes = config["barcodes"]["GBS_barcodes"],
     output: 
         trimmed = expand(config["results"] + "trimmed/{{seq}}{{organism_id}}.{read}.fastq.gz",
             read=["R1", "R2"]),
@@ -164,7 +164,7 @@ rule alignment_postprocessing:
             -T ~/tmp/{rule} \
         """
 
-rule alignment_postprocessing_AMP_GBS:
+rule alignment_postprocessing_without_markdup:
     """Fix mate pairs and sort reads. This implementation for AMP and GBS data doesn't mark duplicates
     due to the large false positive rate of duplicates in these sequencing methods."""
     wildcard_constraints:
@@ -264,7 +264,8 @@ rule create_sample_map:
             results=config["results"],
             sample=SAMPLE_NAMES),
     output:
-        sample_map = temp(config["results"] + "db/{dataset}.sample_map"),
+        #sample_map = temp(config["results"] + "db/{dataset}.sample_map"),
+        sample_map = config["results"] + "db/{dataset}.sample-map",
     threads: 1
     resources: nodes = 1
     run:
@@ -294,12 +295,14 @@ rule consolidate:
     """Combine the chromosomes of .g.vcf files into GenomicsDB datastore."""
     input:
         contigs = config["results"] + "db/chromosomes.list",
-        sample_map = config["results"] + "db/{dataset}.sample_map",
+        sample_map = config["results"] + "db/{dataset}.sample-map",
     output:
         config["results"] + "db/created_{dataset}.txt",
     params:
         db = config["results"] + "db/{dataset}",
-        parallel_intervals = 4,  # Higher value requires more memory and number of file descriptor able to be used at the same time
+        # Higher value requires more memory and number of file descriptor able to be used at the same time.
+        # Attempted with 6, but ran out of memory. Once even 4 was too much. Though did work with 4 when I had fewer samples.
+        parallel_intervals = 3,  
     threads: 2  # Just for opening multiple .vcf files at once.
     resources: nodes = 2
     conda: "../envs/gatk.yaml"
@@ -316,8 +319,8 @@ rule consolidate:
             --batch-size 50 \
             --genomicsdb-shared-posixfs-optimizations true \
             --reader-threads {threads} \
-            --max-num-intervals-to-import-in-parallel {params.parallel_intervals}; \
-        touch {output}
+            --max-num-intervals-to-import-in-parallel {params.parallel_intervals} \
+        && touch {output}
         """
 
 ## Jointly call variants
@@ -385,4 +388,3 @@ rule biallelics_by_mode:
             -Oz \
             -o {output.split} \
         """
-

@@ -9,12 +9,24 @@ rule index_ref:
     conda: "../envs/bio.yaml"
     shell: "bwa index {input}"
 
-rule index_ref_fai:
-    """Create .fai index for reference genome. Requires bgzipped reference."""
-    input: config["ref_fasta"],
-    output: config["ref_fasta"] + ".fai",
+rule fai_index:
+    """Create .fai index for .fna.gz file. Must be bgzipped."""
+    wildcard_constraints: fna = "fasta|fna|fa"
+    input: "{path}/{name}.{fna}.gz"
+    output: "{path}/{name}.{fna}.gz" + ".fai",
     conda: "../envs/bio.yaml"
-    shell: "samtools fqidx {input}"
+    shell: "samtools faidx {input}"
+
+# Need to implement for Whatshap
+# rule pyfaidx_index:
+#     """Create .fai index for .fna.gz file.
+#     Creates a different index than the other rule,
+#     which is needed for WhatsHap."""
+#     wildcard_constraints: fna = "fasta|fna|fa"
+#     input: "{path}/{name}.{fna}.gz"
+#     output: "{path}/faidx/{name}.{fna}.gz" + ".fai",
+#     conda: "../envs/bio.yaml"
+#     shell: "faidx {input}"
 
 rule create_ref_dict:
     """Create .dict file for compressed reference genome."""
@@ -27,10 +39,21 @@ rule create_ref_dict:
     shell: "gatk CreateSequenceDictionary \
             -R {input.fasta}"
 
+rule bai_index:
+    """Create .bai index for .bam file."""
+    input: "{path}/{name}.bam",
+    output: "{path}/{name}.bam.bai",
+    threads: 1
+    resources: nodes = 1
+    conda: "../envs/bio.yaml"
+    shell: "samtools index {input}"
+
 rule tbi_index:
     """Create .tbi index."""
-    input: "{path}/{name}.vcf.gz",
-    output: "{path}/{name}.vcf.gz.tbi",
+    wildcard_constraints:
+        ext = "bcf|vcf.gz",
+    input: "{path}/{name}.{ext}",
+    output: "{path}/{name}.{ext}.tbi",
     threads: 1
     resources: nodes = 1
     conda: "../envs/bio.yaml"
@@ -39,19 +62,12 @@ rule tbi_index:
 
 rule csi_index:
     """Create .csi index."""
-    input: "{path}/{name}.vcf.gz",
-    output: "{path}/{name}.vcf.gz.csi",
+    wildcard_constraints:
+        ext = "bcf|vcf.gz",
+    input: "{path}/{name}.{ext}",
+    output: "{path}/{name}.{ext}.csi",
     threads: 1
     resources: nodes = 1
     conda: "../envs/bio.yaml"
     shell: "bcftools index {input} \
                 --csi"
-
-rule bai_index:
-    """Create .bai index for .bam file."""
-    input: "{path}/{sample}.bam",
-    output: "{path}/{sample}.bam.bai",
-    threads: 1
-    resources: nodes = 1
-    conda: "../envs/bio.yaml"
-    shell: "samtools index {input}"

@@ -11,14 +11,7 @@ Once installed, use the below conda commands to obtain the required packages:
 conda install -c conda-forge mamba
 conda install -c bioconda snakemake
 ```
-Some will still have to be installed manually outside of conda. Depending on which part of the workflow is being used, the following may need to be installed as well and must be accessible through `$PATH`:
-* `gatk`
-* `gtool`
-* `lcMLkin`
-* `makeScaffold`
-* `salmon`
-
-These that aren't available in conda and must be installed using their corresponding download instructions. For example,`lcMLkin` can be cloned from the [GitHub page](https://github.com/COMBINE-lab/maximum-likelihood-relatedness-estimation). 
+Some will still have to be installed manually outside of conda. Depending on which part of the workflow is being used, the following may need to be installed as well and must be accessible through `$PATH`. The main one being `gatk`.
 
 Other necessary libraries have packages and versions stored in `workflow/envs`. These will be installed automatically in their own conda environment when running this snakemake pipeline.
 
@@ -36,55 +29,61 @@ Other subsequent steps require their own additional user-created files as well, 
 Also, be sure to set the value for `path` for where the `resources/` and `results/` directory should go.
 
 
-# Output
-
-In addition to setting files and variables inside the config files, target outputs (the files that we want to generate) must be listed in the `Snakefile`. When we run, Snakemake will create the files (as well as any intermediates) based on what is listed there.
-
 ## Setting Target Files
 
-How to run requires finding the rule in `workflow/rules` for what files are wanted and copying the `output`. For instance, if I want to make .bam files, I can find the corresponding `rule align`, which is in `variant_calling.smk` and find:
+In addition to setting input files and variables inside the config files, target outputs (the files that we want to generate) must also be listed. These are listed inside the variable `target_files`. When we run, Snakemake will create the files (as well as any intermediates) based on what is listed there.
+
+Writing the output files requires finding the rule in `workflow/rules/` for what files are wanted and copying the `output`. For instance, if I want to make BAM files, I can find the corresponding `rule align`, which is in `variant_calling.smk` and find:
 
 ```py
 output:
     alignment = config["results"] + "alignments/raw/{sample}.bam",
 ```
 
-
-Now, to place inside list of target files back inside our `Snakefile`, making sure to replace `{sample}` with the actual sample name that we are interested in.
-
-```py
-rule all:
-    input:
-        config["results"] + "alignments/raw/WGS12345.bam",
-```
-
-Often, many samples will be worked on at the same time. To facilitate this, one could just add more to the target list like so:
+Now, place that inside list of target files back inside our `Snakefile`, making sure to replace `config["results"]` with just `results`. Also replace `{sample}` with the actual sample name that we are interested in.
 
 ```py
-rule all:
-    input:
-        config["results"] + "alignments/raw/WGS12345.bam",
-        config["results"] + "alignments/raw/WGS23456.bam",
+target_files = [
+        results + "alignments/raw/WGS12345.bam",
+]
 ```
 
-Although a more efficient way is to utilize the `expand` command:
+Often, many samples will be worked on at the same time. To facilitate this, we could just add more to the target list like so:
 
 ```py
-rule all:
-    input:
-        expand(config["results"] + "alignments/raw/{sample}.bam", sample=[12345, 23456]),
+target_files = [
+        results + "alignments/raw/WGS12345.bam",
+        results + "alignments/raw/WGS23456.bam",
+]
 ```
 
-When using many (or all samples), list them in the corresponding file referenced at `config["samples"]` one per line. The file is required for later steps anyway, so helpful to make:
+Although a more efficient way is to utilize the `expand` function:
+
 ```py
-rule all:
-    input:
-        expand(config["results"] + "alignments/raw/{sample}.bam", sample=SAMPLE_NAMES),
+target_files = [
+        expand(results + "alignments/raw/{sample}.bam", sample=[12345, 23456]),
+]
 ```
 
+A couple convenience variables are preset, `SAMPLE_NAMES` and `CHROMOSOMES`. `SAMPLE_NAMES` stores all of the sample names listed in `config["samples"]`. And `CHROMOSOMES` stores all numbered chromosomes plus X, Y and MT if in the reference genome.
+```py
+target_files = [
+        expand(results + "alignments/raw/{sample}.bam", sample=SAMPLE_NAMES),
+]
+```
 
-up until creation of a GenomicsDB datastore in the directory `db/` and subsequent joint calling of variants. 
+As another example, to create genotyped VCFs for each chromosome, we can look at `rule genotype_passing`:
+```py
+output:
+    config["results"] + "genotypes/pass/{dataset}.{mode}.chr{chr}.vcf.gz",
+```
 
+For our config file, we could have the following below. `{dataset}` can essentially be named anything, just be consistent. Modifying this same is helpful if we want to have multiple parallel analyses when tweaking parameters. Currently, this workflow only works with `{mode}` set to SNP. This `mode` is for future work with indels or indels and SNPs together.
+```py
+target_files = [
+    expand(results + "genotypes/pass/rhesus.SNP.chr{chr}.vcf.gz", chr=CHROMOSOMES),
+]
+```
 
 # Running
 
@@ -97,10 +96,10 @@ To find the reason for Snakemake rerunning files, run `snakemake -n -r`. One of 
 
 To actually run the program on a Sun Grid Engine cluster, the following command can be issued from the project directory:
 ```sh
-NAME=smk_variant; LOG=log/dirname; nohup snakemake --use-conda --cluster "qsub -V -b n -cwd -pe smp {threads} -N $NAME -o $NAME.out.log -e $NAME.err.log" -j 20 > $LOG/$NAME.smk.log 2>&1
+NAME=smk_variant; LOG=log/dirname; nohup snakemake --use-conda --cluster "qsub -V -b n -cwd -pe smp {threads} -N $NAME -o $NAME.out.log -e $NAME.err.log" -j 20 --resources nodes=50 --latency-wait 90> $LOG/$NAME.smk.log 2>&1
 ```
 
-The integer in `-j 20` will determine the number of jobs submitted at once to the cluster. Hence a higher number will usually finish quicker, but could take up nodes for others who might be using the cluster. `threads` is replaced with the the integer from the corresponding rule under `threads:` from the corresponding rule. So this can be left alone within the command itself. Set the names for variables `NAME` and `LOG`. `NAME` will be the name given to the SGE and viewable with the `qstat` command. `NAME` also be used for the log files. `LOG` is then the directory in which the log files will be stored. This can be changed as needed to help organize logs.
+The integer in `-j 20` will determine the number of jobs submitted at once to the cluster. Though usually more important is `--resources nodes=50` since a single job can take multiple nodes. A higher number will usually finish quicker, but could take up nodes for others who might be using the cluster. So these may be adjusted depending on the space. `threads` is replaced with the the integer from the corresponding rule under `threads:` from the corresponding rule. So this can be left alone within the command itself. Set the names for variables `NAME` and `LOG`. `NAME` will be the name given to the SGE and viewable with the `qstat` command. `NAME` also be used for the log files. `LOG` is then the directory in which the log files will be stored. This can be changed as needed to help organize logs.
 
 
 ## Locally
@@ -126,6 +125,6 @@ NAME=smk_variant; LOG=log/dirname; nohup snakemake --use-conda --cluster "qsub -
 
 `MissingOutputException` - Usually, can just be rerun and will work. Likely due to system latency. Otherwise, if the same file continues to cause this problem, the rule's output (if any) does not match the file(s) listed under the rule's `output`.
 
-`JSONDecodeError` - This can appear even without actually using JSON in this project's code. Removing the `.snakemake` directory appears to fix this.
+`JSONDecodeError` - Removing the `.snakemake/metadata` directory (which has JSON files) appears to fix this. This issue is documented here: https://github.com/snakemake/snakemake/issues/1342. Newer versions of `snakemake` may not have this problem.
 
 Sometimes, submitted Snakemake commands will persist even when running of jobs has stopped. To deal with this, occasionally check running processes with `ps -ax | grep variant-analysis`. The first column of each row shows the process_id. For a "zombie process" with id `12345`, we could clear it with `kill -9 12345`.

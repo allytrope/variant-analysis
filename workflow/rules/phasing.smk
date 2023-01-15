@@ -29,7 +29,7 @@ rule genotype_filtration:
         vcf = config["results"] + "genotypes/posteriors/{dataset}.{mode}.chr{chr}.vcf.gz",
         tbi = config["results"] + "genotypes/posteriors/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
     output:
-        vcf = config["results"] + "genotypes/GQ45/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
+        vcf = config["results"] + "genotypes/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
     params:
         GQ = 45,
     threads: 1
@@ -43,18 +43,18 @@ rule genotype_filtration:
             --set-filtered-genotype-to-no-call \
             -O {output.vcf}"""
 
-rule AC_filter_and_subset_samples:
+rule genotype_passing:
     """Remove variants that don't have a low alternate alleles.
     A min_AC of 1 is necessary to remove ACs that were set to 0 during genotype refinement."""
     input:
-        vcf = config["results"] + "genotypes/GQ45/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
+        vcf = config["results"] + "genotypes/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
         samples = config["samples"],
     output:
-        vcf = config["results"] + "genotypes/GQ45/pass/{dataset}.{mode}.chr{chr}.vcf.gz",
+        vcf = config["results"] + "genotypes/pass/{dataset}.{mode}.chr{chr}.vcf.gz",
     params:
-        min_AF = 0.05,
-        max_AF = 0.95,
-        min_AC = 10,  # Should be 1 or greater
+        min_AF = config["filtering"]["min_AF"],
+        max_AF = config["filtering"]["max_AF"],
+        min_AC = config["filtering"]["min_AC"],  # Should be 1 or greater
     threads: 1
     resources: nodes = 1
     conda: "../envs/bio.yaml"
@@ -77,7 +77,6 @@ rule largest_seq_per_organism:
     Used for determining which sample to use as parent in later step."""
     input:
         samples = config["samples"],
-        #vcf = config["results"] + "genotypes/pass/{dataset}.SNP.chr19.vcf.gz",
     output:
         largest_samples = config["results"] + "haplotypes/pedigree/{dataset}.largest_samples.list",
     # sed separates id and sequence type. E.g. WGS12345 -> WGS    12345
@@ -90,7 +89,6 @@ rule largest_seq_per_organism:
     threads: 1
     resources: nodes = 1
     conda: "../envs/bio.yaml"
-    #bcftools query -l {input.vcf} \  # bcftools retrieves samples
     shell: """
         sed 's/./&\t/3' {input.samples} \
         | awk -v OFS='\t' '{{print $2,$1}}' \
@@ -144,10 +142,14 @@ rule add_seq_to_parents:
                         sire = f"WGS{sire}"
                     elif f"{seq_type}{sire}" in samples:
                         sire = f"{seq_type}{sire}"
+                    else:
+                        sire = ""
                     if f"WGS{dam}" in samples:
                         dam = f"WGS{dam}"
                     elif f"{seq_type}{dam}" in samples:
                         dam = f"{seq_type}{dam}"
+                    else:
+                        dam = ""
                     out.write(f"{child}\t{sire}\t{dam}\n")
 
 rule make_forced_ped_format:
@@ -168,25 +170,35 @@ rule make_forced_ped_format:
         """
 
 rule make_trio_vcf:
+    """Keep only one child-sire-dam trio."""
     input:
-        vcf = config["results"] + "genotypes/GQ45/pass/{dataset}.{mode}.chr{chr}.vcf.gz",
+        vcf = config["results"] + "genotypes/pass/{dataset}.{mode}.chr{chr}.vcf.gz",
+        tsv = config["results"] + "haplotypes/pedigree/{dataset}.all_with_seq.tsv",
     output:
-        trio = config["results"] + "genotypes/GQ45/pass/trio/{dataset}.{child}-{sire}-{dam}.{mode}.chr{chr}.vcf.gz",
+        trio = config["results"] + "genotypes/pass/trios/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz",
     threads: 1
     resources: nodes = 1
     conda: "../envs/bio.yaml"
     shell: """
+        read -r CHILD SIRE DAM <<< $(grep ^{wildcards.sample} {input.tsv}); \
+        if [ -n "$SIRE" ]; \
+        then SIRE=",$SIRE"; \
+        fi; \
+        if [ -n "$DAM" ]; \
+        then DAM=",$DAM"; \
+        fi; \
         bcftools view {input.vcf} \
-            -s {wildcards.child},{wildcards.sire},{wildcards.dam} \
+            -s {wildcards.sample}$SIRE$DAM \
             -Oz \
             -o {output.trio} \
         """
 
 rule count_rates_of_Mendelian_errors_by_GQ:
+    """Find rate of Mendelian errors. For quality checking only."""
     input:
-        trio = config["results"] + "genotypes/GQ45/pass/trio/{dataset}.{child}-{sire}-{dam}.{mode}.chr{chr}.vcf.gz",
+        trio = config["results"] + "genotypes/pass/trios/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz",
     output:
-        counts = config["results"] + "genotypes/GQ45/pass/trio/{dataset}.{child}-{sire}-{dam}.{mode}.chr{chr}.counts",
+        counts = config["results"] + "genotypes/pass/counts/{dataset}.{sample}.{mode}.chr{chr}.counts",
     params:
         script = "workflow/scripts/count_Mendelian_errors.py",
     threads: 1
@@ -201,48 +213,97 @@ rule count_rates_of_Mendelian_errors_by_GQ:
         | uniq -c > {output.counts} \
         """
 
+def find_bam(idx, wildcards, input):
+    with open(input.tsv, "r") as f:
+        for line in f.readlines():
+            if line.startswith(wildcards.sample):
+                trio = line.strip("\n").split("\t")
+    sample = trio[idx]
+    if sample == "":
+        return ""
+    else:
+        return config["results"] + f"alignments/recalibrated/{sample}.bam"
 rule whatshap_trio:
-    """Haplotype assembly to be used as phase set for SHAPEIT4."""
-    input: 
+    """Haplotype assembly to be used as phase set for SHAPEIT4. Uses BAMs and parent information to phase along parent genomes."""
+    input:
         #vcf = config["results"] + "genotypes/pass/{dataset}.{mode}.chr{chr}.vcf.gz",
         #idx = config["results"] + "genotypes/pass/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
-        vcf = config["results"] + "genotypes/pass/trio/{dataset}.{child}-{sire}-{dam}.{mode}.chr{chr}.vcf.gz",
-        idx = config["results"] + "genotypes/pass/trio/{dataset}.{child}-{sire}-{dam}.{mode}.chr{chr}.vcf.gz.tbi",
-        #bams = expand(config["results"] + "alignments/recalibrated/{sample}.bam", sample=SAMPLE_NAMES),
-        child_bam = config["results"] + "alignments/recalibrated/{child}.bam",
-        child_bam_idx = config["results"] + "alignments/recalibrated/{child}.bam.bai",
-        sire_bam = config["results"] + "alignments/recalibrated/{sire}.bam",
-        sire_bam_idx = config["results"] + "alignments/recalibrated/{sire}.bam.bai",
-        dam_bam = config["results"] + "alignments/recalibrated/{dam}.bam",
-        dam_bam_idx = config["results"] + "alignments/recalibrated/{dam}.bam.bai",
+        vcf = config["results"] + "genotypes/pass/trios/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz",
+        idx = config["results"] + "genotypes/pass/trios/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz.tbi",
         ref_fasta = config["ref_fasta"],
         ref_idx = config["ref_fasta"] + ".fai",
+        tsv = config["results"] + "haplotypes/pedigree/{dataset}.all_with_seq.tsv",
         ped = config["results"] + "haplotypes/pedigree/{dataset}.all_with_seq.ped",
+        # Child, sire, and dam BAMs and BAM idxs also required, but specified under "params" and "shell". These should already exist from earlier commands anyway.
     output:
-        phased = config["results"] + "haplotypes/whatshap/{dataset}.{child}-{sire}-{dam}.{mode}.chr{chr}.vcf.gz",
+        phased = config["results"] + "haplotypes/whatshap/trios/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz",
+    params:
+        child_bam = lambda wildcards, input: find_bam(0, wildcards, input),
+        sire_bam = lambda wildcards, input: find_bam(1, wildcards, input),
+        dam_bam = lambda wildcards, input: find_bam(2, wildcards, input),
     threads: 1
     resources: nodes = 1
     conda: "../envs/bio.yaml"
     shell: """
-        whatshap phase {input.vcf} {input.child_bam} {input.sire_bam} {input.dam_bam} \
+        whatshap phase {input.vcf} {params.child_bam} {params.sire_bam} {params.dam_bam} \
             --reference={input.ref_fasta} \
             --ped={input.ped} \
             --tag=PS \
             -o {output.phased} \
         """
 
-rule shapeit4:
-    """Haplotype estimation and imputation. Not using reference this time, but still using scaffold."""
+rule indiv_vcf:
+    """Take only child from trio VCF."""
     input:
-        vcf = config["results"] + "haplotypes/whatshap/{dataset}.{child}-{sire}-{dam}.{mode}.chr{chr}.vcf.gz",
-        csi = config["results"] + "haplotypes/whatshap/{dataset}.{child}-{sire}-{dam}.{mode}.chr{chr}.vcf.gz.csi",
+        trio = config["results"] + "haplotypes/whatshap/trios/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz",
     output:
-        phased = config["results"] + "haplotypes/SHAPEIT4/{dataset}.{child}-{sire}-{dam}.{mode}.chr{chr}.vcf.gz",
+        indiv = temp(config["results"] + "haplotypes/whatshap/indivs/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz"),
+    threads: 1
+    resources: nodes = 1
+    conda: "../envs/bio.yaml"
+    shell: """
+        SAMPLE=$(bcftools query -l {input.trio} | head -n 1); \
+        bcftools view {input.trio} \
+            -s $SAMPLE \
+            -Ou \
+            -o {output.indiv} \
+        """
+
+rule merge_whatshap:
+    input:
+        trios = lambda wildcards: expand(config["results"] + "haplotypes/whatshap/indivs/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz",
+            dataset=wildcards.dataset,
+            sample=SAMPLE_NAMES,
+            mode=wildcards.mode,
+            chr=wildcards.chr),
+        idxs = lambda wildcards: expand(config["results"] + "haplotypes/whatshap/indivs/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz.tbi",
+            dataset=wildcards.dataset,
+            sample=SAMPLE_NAMES,
+            mode=wildcards.mode,
+            chr=wildcards.chr),
+    output:
+        merged = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz",
+    threads: 1
+    resources: nodes = 1
+    conda: "../envs/bio.yaml"
+    shell: """
+        bcftools merge {input.trios} \
+            -Oz \
+            -o {output.merged} \
+        """
+
+rule shapeit4:
+    """Haplotype estimation and imputation."""
+    input:
+        vcf = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz",
+        csi = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz.csi",
+    output:
+        phased = config["results"] + "haplotypes/SHAPEIT4/{dataset}.{mode}.chr{chr}.vcf.gz",
     # When using SHAPIT4.1 or greater, --map not required (though surely still helpful).
     # chr appears to still be mandatory even if there is only one chromosome in file.
     params:
         PS = 0.0001,  # Recommended value by SHAPEIT4
-    log: config["results"] + "haplotypes/SHAPEIT4/log/{dataset}.{child}-{sire}-{dam}.{mode}.chr{chr}.log",
+    log: config["results"] + "haplotypes/SHAPEIT4/log/{dataset}.{mode}.chr{chr}.log",
     threads: 24
     resources: nodes = 24
     conda: "../envs/shapeit4.yaml"
@@ -260,10 +321,10 @@ rule shapeit4:
 rule add_annotations:
     """Adds FORMAT annotations that were removed during processing with SHAPEIT4."""
     input: 
-        vcf = config["results"] + "genotypes/pass/trio/{dataset}.{child}-{sire}-{dam}.{mode}.chr{chr}.vcf.gz",
-        phased = config["results"] + "haplotypes/SHAPEIT4/{dataset}.{child}-{sire}-{dam}.{mode}.chr{chr}.vcf.gz",
+        vcf = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz",
+        phased = config["results"] + "haplotypes/SHAPEIT4/{dataset}.{mode}.chr{chr}.vcf.gz",
     output:
-        annotated = config["results"] + "haplotypes/SHAPEIT4/annotated/{dataset}.{child}-{sire}-{dam}.{mode}.chr{chr}.vcf.gz",
+        annotated = config["results"] + "haplotypes/SHAPEIT4/annotated/{dataset}.{mode}.chr{chr}.vcf.gz",
     threads: 1 
     resources: nodes = 1
     conda: "../envs/bio.yaml"
