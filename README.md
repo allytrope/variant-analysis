@@ -8,8 +8,10 @@ This project is a snakemake workflow for processing `.fastq.gz` files and downst
 `conda` is a package manager that can install many of the tools for this program.
 Once installed, use the below conda commands to obtain the required packages:
 ```
-conda install -c conda-forge mamba
-conda install -c bioconda snakemake
+conda install mamba
+mamba install -c bioconda snakemake
+mamba install -c conda-forge biopython
+mamba install -c anaconda pandas
 ```
 Some will still have to be installed manually outside of conda. Depending on which part of the workflow is being used, the following may need to be installed as well and must be accessible through `$PATH`. The main one being `gatk`.
 

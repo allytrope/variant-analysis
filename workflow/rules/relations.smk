@@ -2,19 +2,21 @@
 These rules will generally be used after those in `variant_calling.smk`.
 """
 
-CONFIG = config["relations"]
-
 ## Calculate relatedness with KING
 
 
 rule concat_chromosomes_skip_SHAPEIT4:
     """Concatenate chromosomes."""
     input:
-        vcfs = lambda wildcards: expand(config["results"] + "genotypes/filtered/{dataset}.SNP.chr{chr}.filtered.vcf.gz",  # Taking hard filtered .vcf,
+        # vcfs = lambda wildcards: expand(config["results"] + "genotypes/filtered/{dataset}.SNP.chr{chr}.filtered.vcf.gz",  # Taking hard filtered .vcf,
+        #     dataset=wildcards.dataset,
+        #     chr=[i for i in range(1, 21)] + ['X']),
+        vcfs = lambda wildcards: expand(config["results"] + "genotypes/filtered/WES_WGS.SNP.chr{chr}.WES_regions.min-ac_3.vcf.gz",  # Taking hard filtered .vcf,
             dataset=wildcards.dataset,
-            chr=[i for i in range(1, 21)] + ['X']),
+            chr=CHROMOSOMES),  # [i for i in range(1, 21)] + ['X']),
     output:
-        config["results"] + "genotypes/filtered/{dataset}.SNP.filtered.vcf.gz"
+        #config["results"] + "genotypes/filtered/{dataset}.SNP.filtered.vcf.gz"
+        config["results"] + "genotypes/filtered/{dataset}.SNP.WES_regions.min-ac_3.vcf.gz",
     threads: 1
     resources: nodes = 1
     conda: "../envs/bio.yaml"
@@ -45,7 +47,7 @@ rule create_combined_binary_plink_file:
     """Create .bed and associated PLINK files."""
     input: 
         #vcf = config["results"] + "haplotypes/SHAPEIT4/{dataset}.SNP.phased.vcf.gz",  # Contains all chromosomes
-        vcf = config["results"] + "genotypes/filtered/{dataset}.SNP.filtered.min-ac_3.vcf.gz",
+        vcf = config["results"] + "genotypes/filtered/{dataset}.SNP.WES_regions.min-ac_3.vcf.gz",
         parents_table = config["parents_table"],
         sex_table = config["sex_table"],
     #output: expand("{results}admixture/supervised/plink/{sample}.{ext}", results=config["results"], sample="{wildcards.sample}", ext=["bed", "bim", "fam"])
@@ -91,9 +93,9 @@ rule set_as_same_family_plink:
 rule estimate_relatedness_king:
     """Estimate relatedness between individuals."""
     input: 
-        bed = config["results"] + "kinship/plink/GBS_WES_WGS.same_fid.bed",
-        bim = config["results"] + "kinship/plink/GBS_WES_WGS.same_fid.bim",
-        fam = config["results"] + "kinship/plink/GBS_WES_WGS.same_fid.fam",
+        bed = config["results"] + "kinship/plink/WES_WGS.same_fid.bed",
+        bim = config["results"] + "kinship/plink/WES_WGS.same_fid.bim",
+        fam = config["results"] + "kinship/plink/WES_WGS.same_fid.fam",
     output:
         kinship = config["results"] + "kinship/KING/king.kin",
     params:
@@ -235,19 +237,6 @@ rule scikit_allel_diversity:
             chromosomes = config["results"] + "relatedness/diversity/chromosomes.tsv",
     conda: "../envs/scikit.yaml"
     script: "../scripts/diversity.py"
-
-rule scikit_allel_ROH:
-    """Calculate runs of homozygosity."""
-    input:
-        vcf = config["results"] + "haplotypes/SHAPEIT4/{dataset}.{mode}.chr{chr}.phased.vcf.gz",
-    #vcf = CONFIG["vcf"],
-    output:
-        roh_pickle = config["results"] + "relatedness/roh/{dataset}.{mode}.chr{chr}.roh_poisson.pickle",  # Stores a pandas datafrane
-        froh_pickle = config["results"] + "relatedness/roh/{dataset}.{mode}.chr{chr}.froh_poisson.pickle",  # Stores a dictionary
-    threads: 1
-    resources: nodes = 1
-    conda: "../envs/scikit.yaml"
-    script: "../scripts/runs_of_homozygosity.py"
 
 # Under development
 # rule scikit_allel_PCA:

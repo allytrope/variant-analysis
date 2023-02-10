@@ -2,8 +2,11 @@ name: scikit
 channels:
   - conda-forge
   - bioconda
+  - anaconda
 
 dependencies:
-  - conda-forge::python=3.10
-  - scikit-allel
-  - bioconda::bcftools=1.15
+  - conda-forge::python=3.10  # 3.10* required by scikit-allel 1.3.5
+  - conda-forge::scikit-allel=1.3.5
+  - conda-forge::hmmlearn  # Required by allel.roh_mhmm
+  #- bioconda::bcftools=1.16
+  - anaconda::pomegranate>=0.9.0  # Required by allel.roh_poissonhmm
