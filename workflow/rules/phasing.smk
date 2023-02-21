@@ -169,6 +169,18 @@ rule make_forced_ped_format:
         > {output.ped} \
         """
 
+rule trios_only_tsv:
+    input:
+        tsv = config["results"] + "haplotypes/pedigree/{dataset}.all_with_seq.tsv",
+    output:
+        tsv = config["results"] + "haplotypes/pedigree/{dataset}.trios_only.tsv",
+    threads: 1
+    resources: nodes = 1
+    shell: """
+        grep -E "(WGS.*|WES.*|GBS.*|AMP.*){3}" {input.tsv} \
+        > {output.tsv} \
+        """
+
 rule make_trio_vcf:
     """Keep only one child-sire-dam trio."""
     input:
@@ -214,6 +226,7 @@ rule count_rates_of_Mendelian_errors_by_GQ:
         """
 
 def find_bam(idx, wildcards, input):
+    """Find BAM file from sample name."""
     with open(input.tsv, "r") as f:
         for line in f.readlines():
             if line.startswith(wildcards.sample):
@@ -257,7 +270,7 @@ rule indiv_vcf:
     input:
         trio = config["results"] + "haplotypes/whatshap/trios/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz",
     output:
-        indiv = temp(config["results"] + "haplotypes/whatshap/indivs/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz"),
+        indiv = config["results"] + "haplotypes/whatshap/indivs/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz",
     threads: 1
     resources: nodes = 1
     conda: "../envs/bio.yaml"
@@ -292,24 +305,45 @@ rule merge_whatshap:
             -o {output.merged} \
         """
 
-rule shapeit4:
+rule make_scaffold:
+    """Create scaffold for SHAPEIT4."""
+    input:
+        vcf = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz",
+        tbi = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
+        fam = config["results"] + "haplotypes/pedigree/all_samples.trios_only.tsv",
+    output:
+        scaffold = config["results"] + "haplotypes/scaffolds/{dataset}.{mode}.chr{chr}.vcf.gz",
+    threads: 1
+    resources: nodes = 1
+    shell: """
+        makeScaffold \
+            --gen {input.vcf} \
+            --fam {input.fam} \
+            --reg {wildcards.chr} \
+            --out {output.scaffold} \
+        """
+
+rule shapeit4_imputation:
     """Haplotype estimation and imputation."""
     input:
         vcf = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz",
         csi = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz.csi",
+        scaffold = config["results"] + "haplotypes/scaffolds/{dataset}.{mode}.chr{chr}.vcf.gz",
+        scaffold_csi = config["results"] + "haplotypes/scaffolds/{dataset}.{mode}.chr{chr}.vcf.gz.csi",
     output:
-        phased = config["results"] + "haplotypes/SHAPEIT4/{dataset}.{mode}.chr{chr}.vcf.gz",
+        phased = config["results"] + "haplotypes/SHAPEIT4/with_scaffold/{dataset}.{mode}.chr{chr}.except_WGS17678_WGS30009.vcf.gz",
     # When using SHAPIT4.1 or greater, --map not required (though surely still helpful).
     # chr appears to still be mandatory even if there is only one chromosome in file.
     params:
         PS = 0.0001,  # Recommended value by SHAPEIT4
-    log: config["results"] + "haplotypes/SHAPEIT4/log/{dataset}.{mode}.chr{chr}.log",
-    threads: 24
-    resources: nodes = 24
+    log: config["results"] + "haplotypes/SHAPEIT4/log/{dataset}.{mode}.chr{chr}.except_WGS17678_WGS30009.log",
+    threads: 1
+    resources: nodes = 1
     conda: "../envs/shapeit4.yaml"
     shell: """
         shapeit4 \
             --input {input.vcf} \
+            --scaffold {input.scaffold} \
             --region {wildcards.chr} \
             --sequencing \
             --use-PS {params.PS} \
