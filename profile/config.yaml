@@ -1,0 +1,17 @@
+# To see more details on what these do, see https://snakemake.readthedocs.io/en/stable/executing/cli.html
+# These Snakemake settings below can be adjusted for each run. But these form a good basis.
+
+#cluster: "qsub -V -b n -cwd -pe smp {threads} -N $VAR -o $LOG/$VAR.out.log -e $LOG/$VAR.err.log"
+jobs: 150
+keep-going: True
+latency-wait: 90
+printshellcmds: True
+rerun-triggers: mtime
+resources:
+  - nodes=150
+use-conda: True
+
+
+# Then run with the following commands in the variant-analysis directory.
+# Just specify a name for the run with VAR and a path to the directory the log file should be written to:
+# VAR=admix3; LOG=/home/log/rhesus/admixture; nohup snakemake --profile profile --cluster "qsub -V -b n -cwd -pe smp {threads} -N $VAR -o $LOG/$VAR.out.log -e $LOG/$VAR.err.log" > $LOG/$VAR.smk.log 2>&1

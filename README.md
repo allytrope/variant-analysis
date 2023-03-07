@@ -98,10 +98,10 @@ To find the reason for Snakemake rerunning files, run `snakemake -n -r`. One of 
 
 To actually run the program on a Sun Grid Engine cluster, the following command can be issued from the project directory:
 ```sh
-NAME=smk_variant; LOG=log/dirname; nohup snakemake --use-conda --cluster "qsub -V -b n -cwd -pe smp {threads} -N $NAME -o $NAME.out.log -e $NAME.err.log" -j 20 --resources nodes=50 --latency-wait 90> $LOG/$NAME.smk.log 2>&1
+NAME=smk_variant; LOG=log/dirname; nohup snakemake --profile profile --cluster "qsub -V -b n -cwd -pe smp {threads} -N $NAME -o $NAME.out.log -e $NAME.err.log" > $LOG/$NAME.smk.log 2>&1
 ```
 
-The integer in `-j 20` will determine the number of jobs submitted at once to the cluster. Though usually more important is `--resources nodes=50` since a single job can take multiple nodes. A higher number will usually finish quicker, but could take up nodes for others who might be using the cluster. So these may be adjusted depending on the space. `threads` is replaced with the the integer from the corresponding rule under `threads:` from the corresponding rule. So this can be left alone within the command itself. Set the names for variables `NAME` and `LOG`. `NAME` will be the name given to the SGE and viewable with the `qstat` command. `NAME` also be used for the log files. `LOG` is then the directory in which the log files will be stored. This can be changed as needed to help organize logs.
+Most of the Snakemake settings are stored in `profile/config.yaml`, which is called by the `--profile profile` option. The values there can be modified to adjust the maximum number of jobs and other information. The `--cluster` option sets the options used by the cluster. These can be left as is. However, set the names for variables `NAME` and `LOG`. `NAME` will be the name given to the cluster's queue and viewable with the `qstat` command. `NAME` is also used for the log files. `LOG` is then the directory in which the log files will be stored. This can be changed as needed to help organize logs.
 
 
 ## Locally
@@ -110,7 +110,7 @@ Ideally, use the cluster configuration above. Otherwise, to run locally, use: `n
 
 
 # Log Files
-Besides the generating the files given in the Snakefile's `rule all`, the above command will also generate log files. Check these when errors occur. There are three logs:
+In addition to generating the files given in `target_files`, the above cluster command will also generate log files. Check these when errors occur. There are three logs ending with the following patterns:
 * `.smk.log` tells what jobs have been submitted, what files each is trying to make, and when jobs have completed.
 * `.err.log` gives details about the actual jobs themselves. When submitting more than one job at once, this can become cluttered with interleaved messages from different jobs. To better find an error message for a specific job, it might require running only a single job at a time, which can be done by setting `-j 1`.
 * `.out.log` prints output messages from the jobs. Once again, these will be interleaved. But in general, there is fewer information in the this file and often not as important as the error log.

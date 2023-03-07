@@ -331,12 +331,12 @@ rule shapeit4_imputation:
         scaffold = config["results"] + "haplotypes/scaffolds/{dataset}.{mode}.chr{chr}.vcf.gz",
         scaffold_csi = config["results"] + "haplotypes/scaffolds/{dataset}.{mode}.chr{chr}.vcf.gz.csi",
     output:
-        phased = config["results"] + "haplotypes/SHAPEIT4/with_scaffold/{dataset}.{mode}.chr{chr}.except_WGS17678_WGS30009.vcf.gz",
+        phased = config["results"] + "haplotypes/SHAPEIT4/with_scaffold/{dataset}.{mode}.chr{chr}.vcf.gz",
     # When using SHAPIT4.1 or greater, --map not required (though surely still helpful).
     # chr appears to still be mandatory even if there is only one chromosome in file.
     params:
         PS = 0.0001,  # Recommended value by SHAPEIT4
-    log: config["results"] + "haplotypes/SHAPEIT4/log/{dataset}.{mode}.chr{chr}.except_WGS17678_WGS30009.log",
+    log: config["results"] + "haplotypes/SHAPEIT4/log/{dataset}.{mode}.chr{chr}.log",
     threads: 1
     resources: nodes = 1
     conda: "../envs/shapeit4.yaml"
