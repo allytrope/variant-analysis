@@ -70,6 +70,40 @@ rule genotype_passing:
             -o {output.vcf} \
         """
 
+rule passing_WGS:
+    """Subset out WGS samples."""
+    input:
+        vcf = config["results"] + "genotypes/pass/{dataset}.{mode}.chr{chr}.vcf.gz",
+        tbi = config["results"] + "genotypes/pass/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
+    output:
+        samples = temp(config["results"] + "genotypes/pass/{dataset}.{mode}.chr{chr}.WGS_samples.list"),
+        vcf = config["results"] + "genotypes/pass/WGS/{dataset}.{mode}.chr{chr}.vcf.gz",
+    shell: """
+        bcftools query -l {input.vcf} | grep WGS > {output.samples};
+        bcftools view {input.vcf} \
+            -S {output.samples} \
+            -Oz \
+            -o {output.vcf} \
+        """
+
+rule passing_WES:
+    """Subset out WES samples and keep WES regions determined by mosdepth."""
+    input:
+        vcf = config["results"] + "genotypes/pass/{dataset}.{mode}.chr{chr}.vcf.gz",
+        tbi = config["results"] + "genotypes/pass/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
+        bed = config["results"] + "coverage/common_WES_0.5_loci.bed",  # TODO: Generalize this
+    output:
+        samples = temp(config["results"] + "genotypes/pass/{dataset}.{mode}.chr{chr}.WES_samples.list"),
+        vcf = config["results"] + "genotypes/pass/WES/{dataset}.{mode}.chr{chr}.vcf.gz",
+    shell: """
+        bcftools query -l {input.vcf} | grep WES > {output.samples};
+        bcftools view {input.vcf} \
+            -S {output.samples} \
+            -R {input.bed} \
+            -Oz \
+            -o {output.vcf} \
+        """
+
 rule largest_seq_per_organism:
     """Create a list of samples where only one sample from each organism is kept.
     Only the sequencing type with the most data is kept, which is determined by WGS > WES > GBS > AMP.
@@ -120,7 +154,7 @@ rule add_seq_to_children:
     
 rule add_seq_to_parents:
     """Prepend sequence type to parents in pedigree.
-    Uses WGS if available, otherise tries the same sequence type as child.
+    Uses WGS if available, otherwise tries the same sequence type as child.
     If the parent is not sequenced, no sequence type is prepended."""
     input:
         samples = config["samples"],
@@ -177,7 +211,7 @@ rule trios_only_tsv:
     threads: 1
     resources: nodes = 1
     shell: """
-        grep -E "(WGS.*|WES.*|GBS.*|AMP.*){3}" {input.tsv} \
+        grep -E "(WGS.*|WES.*|GBS.*|AMP.*){{3}}" {input.tsv} \
         > {output.tsv} \
         """
 
@@ -187,7 +221,7 @@ rule make_trio_vcf:
         vcf = config["results"] + "genotypes/pass/{dataset}.{mode}.chr{chr}.vcf.gz",
         tsv = config["results"] + "haplotypes/pedigree/{dataset}.all_with_seq.tsv",
     output:
-        trio = config["results"] + "genotypes/pass/trios/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz",
+        trio = temp(config["results"] + "genotypes/pass/trios/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz"),
     threads: 1
     resources: nodes = 1
     conda: "../envs/bio.yaml"
@@ -235,7 +269,11 @@ def find_bam(idx, wildcards, input):
     if sample == "":
         return ""
     else:
-        return config["results"] + f"alignments/recalibrated/{sample}.bam"
+        sample_runs = []
+        for run in SAMPLE_RUNS:
+            if sample in run:
+                sample_runs.append(config["results"] + "alignments/recalibrated/" + run + ".bam")
+        return sample_runs
 rule whatshap_trio:
     """Haplotype assembly to be used as phase set for SHAPEIT4. Uses BAMs and parent information to phase along parent genomes."""
     input:
@@ -249,7 +287,7 @@ rule whatshap_trio:
         ped = config["results"] + "haplotypes/pedigree/{dataset}.all_with_seq.ped",
         # Child, sire, and dam BAMs and BAM idxs also required, but specified under "params" and "shell". These should already exist from earlier commands anyway.
     output:
-        phased = config["results"] + "haplotypes/whatshap/trios/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz",
+        phased = temp(config["results"] + "haplotypes/whatshap/trios/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz"),
     params:
         child_bam = lambda wildcards, input: find_bam(0, wildcards, input),
         sire_bam = lambda wildcards, input: find_bam(1, wildcards, input),
@@ -286,12 +324,12 @@ rule merge_whatshap:
     input:
         trios = lambda wildcards: expand(config["results"] + "haplotypes/whatshap/indivs/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz",
             dataset=wildcards.dataset,
-            sample=SAMPLE_NAMES,
+            sample=SAMPLES,
             mode=wildcards.mode,
             chr=wildcards.chr),
         idxs = lambda wildcards: expand(config["results"] + "haplotypes/whatshap/indivs/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz.tbi",
             dataset=wildcards.dataset,
-            sample=SAMPLE_NAMES,
+            sample=SAMPLES,
             mode=wildcards.mode,
             chr=wildcards.chr),
     output:
@@ -305,67 +343,35 @@ rule merge_whatshap:
             -o {output.merged} \
         """
 
-rule make_scaffold:
-    """Create scaffold for SHAPEIT4."""
+rule restrict_vcf_seq_type:
+    """Create VCF with only one type of sequencing method (e.g., WES, WGS)"""
     input:
         vcf = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz",
-        tbi = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
-        fam = config["results"] + "haplotypes/pedigree/all_samples.trios_only.tsv",
     output:
-        scaffold = config["results"] + "haplotypes/scaffolds/{dataset}.{mode}.chr{chr}.vcf.gz",
-    threads: 1
-    resources: nodes = 1
-    shell: """
-        makeScaffold \
-            --gen {input.vcf} \
-            --fam {input.fam} \
-            --reg {wildcards.chr} \
-            --out {output.scaffold} \
-        """
-
-rule shapeit4_imputation:
-    """Haplotype estimation and imputation."""
-    input:
-        vcf = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz",
-        csi = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz.csi",
-        scaffold = config["results"] + "haplotypes/scaffolds/{dataset}.{mode}.chr{chr}.vcf.gz",
-        scaffold_csi = config["results"] + "haplotypes/scaffolds/{dataset}.{mode}.chr{chr}.vcf.gz.csi",
-    output:
-        phased = config["results"] + "haplotypes/SHAPEIT4/with_scaffold/{dataset}.{mode}.chr{chr}.vcf.gz",
-    # When using SHAPIT4.1 or greater, --map not required (though surely still helpful).
-    # chr appears to still be mandatory even if there is only one chromosome in file.
-    params:
-        PS = 0.0001,  # Recommended value by SHAPEIT4
-    log: config["results"] + "haplotypes/SHAPEIT4/log/{dataset}.{mode}.chr{chr}.log",
-    threads: 1
-    resources: nodes = 1
-    conda: "../envs/shapeit4.yaml"
-    shell: """
-        shapeit4 \
-            --input {input.vcf} \
-            --scaffold {input.scaffold} \
-            --region {wildcards.chr} \
-            --sequencing \
-            --use-PS {params.PS} \
-            --output {output.phased} \
-            --log {log} \
-            --thread {threads} \
-        """
-
-rule add_annotations:
-    """Adds FORMAT annotations that were removed during processing with SHAPEIT4."""
-    input: 
-        vcf = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz",
-        phased = config["results"] + "haplotypes/SHAPEIT4/{dataset}.{mode}.chr{chr}.vcf.gz",
-    output:
-        annotated = config["results"] + "haplotypes/SHAPEIT4/annotated/{dataset}.{mode}.chr{chr}.vcf.gz",
-    threads: 1 
-    resources: nodes = 1
+        samples = temp(config["results"] + "haplotypes/whatshap/{dataset}.{mode}.chr{chr}.{seq}_samples.list"),
+        vcf = config["results"] + "haplotypes/whatshap/{seq}/{dataset}.{mode}.chr{chr}.vcf.gz",
     conda: "../envs/bio.yaml"
     shell: """
-        bcftools annotate {input.vcf} \
-            -a {input.phased} \
-            -c FORMAT/GT \
-            -o {output.annotated} \
+        bcftools query -l {input.vcf} | grep {wildcards.seq} > {output.samples};
+        bcftools view {input.vcf} \
+            -S {output.samples} \
             -Oz \
+            -o {output.vcf} \
+        """
+
+rule WES_only:
+    """Subset out WES samples and keep WES regions determined by mosdepth."""
+    input:
+        vcf = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz",
+        bed = config["results"] + "coverage/mosdepth/common_WES_0.5_loci.bed",  # TODO: Generalize this
+    output:
+        samples = temp(config["results"] + "haplotypes/whatshap/{dataset}.{mode}.chr{chr}.{seq}_samples.list"),
+        vcf = config["results"] + "haplotypes/whatshap/{seq}_SNPs/{dataset}.{mode}.chr{chr}.vcf.gz",
+    shell: """
+        bcftools query -l {input.vcf} | grep {wildcards.seq} > {output.samples};
+        bcftools view {input.vcf} \
+            -S {output.samples} \
+            -R {input.bed} \
+            -Oz \
+            -o {output.vcf} \
         """
