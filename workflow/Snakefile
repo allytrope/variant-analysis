@@ -9,9 +9,6 @@ from collections import defaultdict
 import os
 from pathlib import Path
 
-# A different config file can be set here.
-from template import __dict__ as config
-
 # Create defaultdict of runs for samples.
 # RUNS = defaultdict(set)
 # for file in os.listdir(config["reads"]):
@@ -19,9 +16,19 @@ from template import __dict__ as config
 #     RUNS[split[0]].add(split[1])
 
 # Create list of samples
+with open(config["runs"]) as f:
+    SAMPLE_RUNS = f.read().splitlines()
+
 with open(config["samples"]) as f:
-    SAMPLE_NAMES = f.read().splitlines()
-print(SAMPLE_NAMES)
+    SAMPLES = f.read().splitlines()
+
+# with open(config["runs"]) as f:
+#     SAMPLES = []
+#     for row in f:
+#         sample = row.split("_")[0]
+#         if sample not in SAMPLES:
+#             SAMPLES.append(sample)
+# print(SAMPLES)
 
 # Create list of chromosomes
 if Path(config["results"] + "db/chromosomes.list").is_file():
@@ -30,6 +37,10 @@ if Path(config["results"] + "db/chromosomes.list").is_file():
     print(CHROMOSOMES)
 else:
     print("No chromosome file yet.")
+    CHROMOSOMES = []
+# CHROMOSOMES.remove("X")
+# CHROMOSOMES.remove("Y")
+# CHROMOSOMES.remove("MT")
 
 # For command that use bash specific syntax, these have to activated. Although they may only work with the bio environment.
 #shell.executable("/bin/bash")
@@ -51,17 +62,22 @@ wildcard_constraints:
 
 include: "rules/directory_structure.smk"
 include: "rules/indices.smk"
+include: "rules/quality_control.smk"
 include: "rules/variant_calling.smk"
 #include: "rules/variant_recalibration.smk"
 include: "rules/hard_filter.smk"
+include: "rules/imputation.smk"
 #include: "rules/gene_counts.smk"
 include: "rules/phasing.smk"
 #include: "rules/kinship.smk"
 #include: "rules/relations.smk"
+include: "rules/fst.smk"
+include: "rules/pca.smk"
 include: "rules/homozygosity.smk"
+include: "rules/admixture.smk"
 include: "rules/structural_variation.smk"
-#include: "rules/concordance.smk"
-#include: "rules/coverage.smk"
+include: "rules/concordance.smk"
+include: "rules/coverage.smk"
 include: "rules/one_off.smk"
 include: "rules/misc.smk"
 
