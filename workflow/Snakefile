@@ -57,7 +57,7 @@ wildcard_constraints:
     sample = "\w+",
     sample1 = "\w+",
     sample2 = "\w+",
-    seq = "WGS|WES|GBS|AMP",
+    seq = "WGS|WES|GBS|AMP|merged",
     workspace="[A-Za-z0-9_\.]+",
 
 include: "rules/directory_structure.smk"
@@ -71,6 +71,7 @@ include: "rules/imputation.smk"
 include: "rules/phasing.smk"
 #include: "rules/kinship.smk"
 #include: "rules/relations.smk"
+include: "rules/scikit-allel.smk"
 include: "rules/fst.smk"
 include: "rules/pca.smk"
 include: "rules/homozygosity.smk"
