@@ -17,6 +17,17 @@ rule fai_index:
     conda: "../envs/bio.yaml"
     shell: "samtools faidx {input}"
 
+rule gzi_index:
+    """Create .gzi index for .fna.gz file. Must be bgzipped."""
+    wildcard_constraints: fna = "fasta|fna|fa"
+    input: "{path}/{name}.{fna}.gz"
+    output: "{path}/{name}.{fna}.gz" + ".gzi",
+    conda: "../envs/bio.yaml"
+    shell: """
+        bgzip {input} \
+            -r \
+        """
+
 # Need to implement for Whatshap
 # rule pyfaidx_index:
 #     """Create .fai index for .fna.gz file.
@@ -39,6 +50,17 @@ rule create_ref_dict:
     shell: "gatk CreateSequenceDictionary \
             -R {input.fasta}"
 
+rule minimap_index:
+    """Create .mmi index of reference fasta for Minimap2."""
+    input:
+        ref_fasta = config["ref_fasta"],
+    output:
+        mmi = config["ref_fasta"] + ".mmi",
+    shell: """
+        minimap2 {ref.fasta} \
+            -d {output.mmi} \
+        """
+
 rule bai_index:
     """Create .bai index for .bam file."""
     input: "{path}/{name}.bam",
@@ -50,10 +72,8 @@ rule bai_index:
 
 rule tbi_index:
     """Create .tbi index."""
-    wildcard_constraints:
-        ext = "bcf|vcf.gz",
-    input: "{path}/{name}.{ext}",
-    output: "{path}/{name}.{ext}.tbi",
+    input: "{path}/{name}.vcf.gz",
+    output: "{path}/{name}.vcf.gz.tbi",
     threads: 1
     resources: nodes = 1
     conda: "../envs/bio.yaml"

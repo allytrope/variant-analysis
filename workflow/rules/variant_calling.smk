@@ -1,7 +1,7 @@
 """Contain workflow for performing variant analysis from paired-end FASTQ files."""
 
 from Bio.Seq import Seq
-import gzip
+#import gzip
 import os
 import pandas as pd
 
@@ -15,14 +15,15 @@ rule cut_adapters_with_i5_i7:
     These are hard coded under "params". The i7 information is used for finding the adapters in R1 and then i5 for R2."""
     wildcard_constraints:
         seq = "WGS|WES|AMP",
-    input: 
-        reads = lambda wildcards: expand(config["reads"] + "{seq}{organism_id}.{read}.fastq.gz",
+    input:
+        reads = lambda wildcards: expand(config["reads"] + "{seq}{sample_run}.{read}.fastq.gz",
+        #reads = lambda wildcards: expand(config["reads"] + "{seq}{sample}_{run}.{read}.fastq.gz",
             seq=wildcards.seq,
-            organism_id=wildcards.organism_id,
+            sample_run=wildcards.sample_run,
             read=["R1", "R2"]),
     output: 
-        trimmed = expand(config["results"] + "trimmed/{{seq}}{{organism_id}}.{read}.fastq.gz",
-            read=["R1", "R2"]),
+        trimmed = temp(expand(config["results"] + "trimmed/{{seq}}{{sample_run}}.{read}.fastq.gz",
+            read=["R1", "R2"])),
     params: 
         pre_i7 = "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC",
         post_i7 = "ATCTCGTATGCCGTCTTCTGCTTG",
@@ -81,46 +82,59 @@ rule cut_adapters_with_i5_i7:
 #             -o {output.trimmed[0]} \
 #             -p {output.trimmed[1]}"""
 
-def find_barcode(wildcards, input):
-    """Pull sample barcode from barcodes file, which contains reverse complements for R2."""
-    df = pd.read_table(input.barcodes, header=None, names=["organism_id", "barcodes"])
-    barcode = df.set_index("organism_id")["barcodes"].to_dict()[wildcards.organism_id]
-    return str(Seq(barcode).reverse_complement())
-rule cut_GBS_adapters:
-    """Cut out 3' end adapters from GBS reads.
+## This section started to error. Probably due to lack of barcodes file.
+# def find_barcode(wildcards, input):
+#     """Pull sample barcode from barcodes file, which contains reverse complements for R2."""
+#     df = pd.read_table(input.barcodes, header=None, names=["organism_id", "barcodes"])
+#     barcode = df.set_index("organism_id")["barcodes"].to_dict()[wildcards.sample_run]
+#     return str(Seq(barcode).reverse_complement())
+# rule cut_GBS_adapters:
+#     """Cut out 3' end adapters from GBS reads.
 
-    This method doesn't rely on i7 or i5 values given in the header lines. Instead, R1 and R2 reads have the adapters given under params.
-    After both of these adapters, there is a pseudoconsensus sequence, but left out since Cutadapt will remove anything after the given adapters."""
-    wildcard_constraints:
-        seq = "GBS",
-    input:
-        reads = lambda wildcards: expand(config["reads"] + "{seq}{organism_id}.{read}.fastq.gz",
-            seq=wildcards.seq,
-            organism_id=wildcards.organism_id,
-            read=["R1", "R2"]),
-        barcodes = config["barcodes"]["GBS_barcodes"],
-    output: 
-        trimmed = expand(config["results"] + "trimmed/{{seq}}{{organism_id}}.{read}.fastq.gz",
-            read=["R1", "R2"]),
-    params: 
-        barcode = lambda wildcards, input: find_barcode(wildcards, input),
-        R1_adapter = "AGATCGGAAGAGCGGTTCAGCAGGAATGCCGAG",
-        R2_adapter = "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
-    threads: 4
-    resources: nodes = 4
-    conda: "../envs/bio.yaml"
-    shell: """
-        ADAPTERS=$(gunzip -c {input.reads[0]} | head -n 1 | cut -d " " -f 2 | cut -d ":" -f 4);
-        R1_END_ADAPTER="{params.R1_adapter}";
-        R2_END_ADAPTER="{params.barcode}{params.R2_adapter}";
-        cutadapt {input.reads} \
-            -a $R1_END_ADAPTER \
-            -A $R2_END_ADAPTER \
-            --cores {threads} \
-            -o {output.trimmed[0]} \
-            -p {output.trimmed[1]}"""
+#     This method doesn't rely on i7 or i5 values given in the header lines. Instead, R1 and R2 reads have the adapters given under params.
+#     After both of these adapters, there is a pseudoconsensus sequence, but left out since Cutadapt will remove anything after the given adapters."""
+#     wildcard_constraints:
+#         seq = "GBS",
+#     input:
+#         reads = lambda wildcards: expand(config["reads"] + "{seq}{sample_run}.{read}.fastq.gz",
+#             seq=wildcards.seq,
+#             sample_run=wildcards.sample_run,
+#             read=["R1", "R2"]),
+#         barcodes = config["barcodes"]["GBS_barcodes"],
+#     output: 
+#         trimmed = expand(config["results"] + "trimmed/{{seq}}{{sample_run}}.{read}.fastq.gz",
+#             read=["R1", "R2"]),
+#     params: 
+#         barcode = lambda wildcards, input: find_barcode(wildcards, input),
+#         R1_adapter = "AGATCGGAAGAGCGGTTCAGCAGGAATGCCGAG",
+#         R2_adapter = "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
+#     threads: 4
+#     resources: nodes = 4
+#     conda: "../envs/bio.yaml"
+#     shell: """
+#         ADAPTERS=$(gunzip -c {input.reads[0]} | head -n 1 | cut -d " " -f 2 | cut -d ":" -f 4);
+#         R1_END_ADAPTER="{params.R1_adapter}";
+#         R2_END_ADAPTER="{params.barcode}{params.R2_adapter}";
+#         cutadapt {input.reads} \
+#             -a $R1_END_ADAPTER \
+#             -A $R2_END_ADAPTER \
+#             --cores {threads} \
+#             -o {output.trimmed[0]} \
+#             -p {output.trimmed[1]}"""
 
 ## Alignment
+
+rule align_LRS:
+    """Align long read sequencing."""
+    input:
+        mmi = config["ref_fasta"] + ".mmi",
+    output:
+    shell: """
+        minimap2 {input.fastq} \
+            -d {input.mmi} \
+        > {output} \
+        """
+
 rule align:
     """Align .fastq sequence to reference genome.
 
@@ -129,26 +143,26 @@ rule align:
     input:
         ref = config["ref_fasta"],
         idxs = multiext(config["ref_fasta"], ".amb", ".ann", ".bwt", ".pac", ".sa"),
-        trimmed = lambda wildcards: expand(config["results"] + "trimmed/{sample}.{read}.fastq.gz",
-            sample=wildcards.sample,
+        trimmed = lambda wildcards: expand(config["results"] + "trimmed/{sample_run}.{read}.fastq.gz",
+            sample_run=wildcards.sample_run,
             read=["R1", "R2"]),
     output:
-        alignment = config["results"] + "alignments/raw/{sample}.bam",
+        alignment = temp(config["results"] + "alignments/raw/{sample_run}.bam"),
     threads: 24
     resources: nodes = 24
     conda: "../envs/bio.yaml"
     # First of RG's tags must be SM and last must be PU because of how I have to call the sample names.
     shell: """
-        bash workflow/scripts/align.sh {input.trimmed[0]} {input.trimmed[1]} {input.ref} {output} {threads} {wildcards.sample}"""
+        bash workflow/scripts/align.sh {input.trimmed[0]} {input.trimmed[1]} {input.ref} {output} {threads} {wildcards.sample_run}"""
 
 rule alignment_postprocessing:
     """Fix mate pairs and mark duplicate reads."""
     wildcard_constraints:
         seq = "WES|WGS",
     input:
-        alignment = config["results"] + "alignments/raw/{seq}{organism_id}.bam",
+        alignment = config["results"] + "alignments/raw/{seq}{sample_run}.bam",
     output:
-        alignment = config["results"] + "alignments/markdup/{seq}{organism_id}.bam",
+        alignment = temp(config["results"] + "alignments/markdup/{seq}{sample_run}.bam"),
     conda: "../envs/bio.yaml"
     threads: 1
     resources: nodes = 1
@@ -170,9 +184,9 @@ rule alignment_postprocessing_without_markdup:
     wildcard_constraints:
         seq = "AMP|GBS",
     input:
-        alignment = config["results"] + "alignments/raw/{seq}{organism_id}.bam",
+        alignment = config["results"] + "alignments/raw/{seq}{sample_run}.bam",
     output:
-        alignment = config["results"] + "alignments/markdup/{seq}{organism_id}.bam",
+        alignment = temp(config["results"] + "alignments/markdup/{seq}{sample_run}.bam"),
     conda: "../envs/bio.yaml"
     threads: 1
     resources: nodes = 1
@@ -193,12 +207,13 @@ rule base_recalibration:
     input: 
         ref = config["ref_fasta"],
         ref_idx = config["ref_fasta"] + ".fai",
+        ref_gzi = config["ref_fasta"] + ".gzi",
         ref_dict = ".".join(config["ref_fasta"].split(".")[:-2]) + ".dict",
-        bam = config["results"] + "alignments/markdup/{sample}.bam",
+        bam = config["results"] + "alignments/markdup/{sample_run}.bam",
         known_variants = config["BQSR_known_variants"],
         indexed_known_variants = config["BQSR_known_variants"] + ".tbi",
     output:
-        config["results"] + "alignments/recalibrated/recal_tables/{sample}.BQSR.recal",
+        config["results"] + "alignments/recalibrated/recal_tables/{sample_run}.BQSR.recal",
     threads: 1
     resources: nodes = 1
     conda: "../envs/gatk.yaml"
@@ -217,10 +232,10 @@ rule apply_base_recalibration:
         ref = config["ref_fasta"],
         ref_idx = config["ref_fasta"] + ".fai",
         ref_dict = ".".join(config["ref_fasta"].split(".")[:-2]) + ".dict",
-        bam = config["results"] + "alignments/markdup/{sample}.bam",
-        recal = config["results"] + "alignments/recalibrated/recal_tables/{sample}.BQSR.recal",
+        bam = config["results"] + "alignments/markdup/{sample_run}.bam",
+        recal = config["results"] + "alignments/recalibrated/recal_tables/{sample_run}.BQSR.recal",
     output:
-        config["results"] + "alignments/recalibrated/{sample}.bam",
+        config["results"] + "alignments/recalibrated/{sample_run}.bam",
     threads: 1
     resources: nodes = 1
     conda: "../envs/gatk.yaml"
@@ -233,23 +248,58 @@ rule apply_base_recalibration:
             --tmp-dir ~/tmp/{rule} \
             --create-output-bam-index false"""
 
+# def collect_runs_from_sample(wildcards):
+#     """Find runs from same sample."""
+#     sample_runs = []
+#     for run in SAMPLE_RUNS:
+#         if wildcards.sample in run:
+#             sample_runs.append(config["results"] + "alignments/recalibrated/" + run + ".bam")
+#     return sample_runs
+# rule merge_sample_runs:
+#     """Merge runs from same sample."""
+#     input:
+#         bams = collect_runs_from_sample
+#     output:
+#         merged = config["results"] + "alignments/merged/{sample}.bam",
+#     threads: 1
+#     resources: nodes = 1
+#     conda: "../envs/bio.yaml"
+#     shell: """
+#         samtools merge {input.bams} \
+#             -o {output.merged} \
+#         """
+
 ## Variant calling
+def collect_runs_from_sample(wildcards):
+    """Find runs from same sample."""
+    sample_runs = []
+    for run in SAMPLE_RUNS:
+        if wildcards.sample == run.split("_")[0]:
+            sample_runs.append(config["results"] + "alignments/recalibrated/" + run + ".bam")
+    return sample_runs
 rule call_variants:
     """Call variants to make VCF file."""
     input:
         ref = config["ref_fasta"],
-        bam = config["results"] + "alignments/recalibrated/{sample}.bam",
-        bam_idx = config["results"] + "alignments/recalibrated/{sample}.bam.bai",
+        fai = config["ref_fasta"] + ".fai",
+        dict = ".".join(config["ref_fasta"].split(".")[:-2]) + ".dict",
+        #bam = config["results"] + "alignments/merged/{sample}.bam",
+        bams = collect_runs_from_sample,
+        bams_idx = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_sample(wildcards)))
+        #bam_idx = config["results"] + "alignments/merged/{sample}.bam.bai",
+    params:
+        bams = lambda wildcards, input: list(map(lambda bam: "-I " + bam, input.bams)),
     output:
         vcf = config["results"] + "gvcf/{sample}.g.vcf.gz",
         tbi = config["results"] + "gvcf/{sample}.g.vcf.gz.tbi",
     conda: "../envs/gatk.yaml"
     threads: 9  # 4 is default
     resources: nodes = 9
+    # -I {input.bam} \
     shell: """
         gatk --java-options '-Xmx16g' HaplotypeCaller \
             -R {input.ref} \
-            -I {input.bam} \
+            {params.bams} \
             -O {output.vcf} \
             -ERC GVCF \
             --native-pair-hmm-threads {threads} \
@@ -262,7 +312,7 @@ rule create_sample_map:
     input:
         gvcfs = expand("{results}gvcf/{sample}.g.vcf.gz",
             results=config["results"],
-            sample=SAMPLE_NAMES),
+            sample=SAMPLES),
     output:
         #sample_map = temp(config["results"] + "db/{dataset}.sample_map"),
         sample_map = config["results"] + "db/{dataset}.sample-map",
@@ -306,7 +356,7 @@ rule consolidate:
     threads: 2  # Just for opening multiple .vcf files at once.
     resources: nodes = 2
     conda: "../envs/gatk.yaml"
-    shell:  """
+    shell: """
         CONTIGS=$(awk 'BEGIN {{ORS = ","}} {{print $0}}' {input.contigs}); \
         if [ -d {params.db} ]; \
         then WORKSPACE_FLAG="genomicsdb-update-workspace-path"; \
