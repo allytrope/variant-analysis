@@ -48,10 +48,10 @@ rule genotype_passing:
     A min_AC of 1 is necessary to remove ACs that were set to 0 during genotype refinement."""
     input:
         vcf = config["results"] + "genotypes/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
-        samples = config["samples"],
     output:
         vcf = config["results"] + "genotypes/pass/{dataset}.{mode}.chr{chr}.vcf.gz",
     params:
+        samples = ','.join(SAMPLES),
         min_AF = config["filtering"]["min_AF"],
         max_AF = config["filtering"]["max_AF"],
         min_AC = config["filtering"]["min_AC"],  # Should be 1 or greater
@@ -60,7 +60,7 @@ rule genotype_passing:
     conda: "../envs/bio.yaml"
     shell: """
         bcftools view {input.vcf} \
-            -S {input.samples} \
+            -s {params.samples} \
             -Ou \
         | bcftools view \
             --min-af {params.min_AF} \
@@ -109,8 +109,6 @@ rule largest_seq_per_organism:
     Only the sequencing type with the most data is kept, which is determined by WGS > WES > GBS > AMP.
     This ordering happens to work here because of the alphabetical ordering.
     Used for determining which sample to use as parent in later step."""
-    input:
-        samples = config["samples"],
     output:
         largest_samples = config["results"] + "haplotypes/pedigree/{dataset}.largest_samples.list",
     # sed separates id and sequence type. E.g. WGS12345 -> WGS    12345
@@ -120,11 +118,15 @@ rule largest_seq_per_organism:
     # take largest id with largest sequence type (this works because "GBS", "WES", "WGS" are in alphabetical order)
     # grep to remove sample names with an underscore
     # sort
+    params:
+        samples = '\n'.join(SAMPLES),
     threads: 1
     resources: nodes = 1
     conda: "../envs/bio.yaml"
+    # sed 's/./&\t/3' {input.samples} \
     shell: """
-        sed 's/./&\t/3' {input.samples} \
+        echo {params.samples} \
+        | sed 's/./&\t/3' \
         | awk -v OFS='\t' '{{print $2,$1}}' \
         | sort \
         | awk '$1!=p{{if(p)print s; p=$1; s=$0; next}}{{sub(p,x); s=s $0}} END {{print s}}' \
@@ -137,15 +139,17 @@ rule add_seq_to_children:
     """Add seq type (AMP, GBS, WES, and/or WGS) to individual ids in pedigree
     and repeat entries if there are multiple sequencing types for an individual."""
     input:
-        samples = config["samples"],
         parents = config["pedigree"],
         largest_samples = config["results"] + "haplotypes/pedigree/{dataset}.largest_samples.list",
     output:
         parents = temp(config["results"] + "haplotypes/pedigree/{dataset}.children_with_seq.tsv"),
+    params:
+        samples = '\n'.join(SAMPLES)
     threads: 1
     resources: nodes = 1
     shell: """
-        sed 's/AMP/AMP\t/g;s/GBS/GBS\t/g; s/WES/WES\t/g; s/WGS/WGS\t/g' {input.samples} \
+        echo {params.samples} \
+        | sed 's/AMP/AMP\t/g;s/GBS/GBS\t/g; s/WES/WES\t/g; s/WGS/WGS\t/g' \
         | sort -k 2 \
         | join - {input.parents} -1 2 -2 1 \
         | awk '{{print $2$1"\t"$3"\t"$4}}' \
@@ -157,16 +161,14 @@ rule add_seq_to_parents:
     Uses WGS if available, otherwise tries the same sequence type as child.
     If the parent is not sequenced, no sequence type is prepended."""
     input:
-        samples = config["samples"],
         parents = config["results"] + "haplotypes/pedigree/{dataset}.children_with_seq.tsv",
     output:
         tsv = config["results"] + "haplotypes/pedigree/{dataset}.all_with_seq.tsv",
+    params:
+        samples = SAMPLES,
     threads: 1
     resources: nodes = 1
     run:
-        samples = None
-        with open(input.samples, "r") as f:
-            samples = f.read().strip().split("\n")
         with open(input.parents, "r") as f:
             with open(output.tsv, "a") as out:
                 for line in f:

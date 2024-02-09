@@ -15,20 +15,17 @@ from pathlib import Path
 #     split = file.split(".")
 #     RUNS[split[0]].add(split[1])
 
-# Create list of samples
+
+# Create list of runs
 with open(config["runs"]) as f:
     SAMPLE_RUNS = f.read().splitlines()
 
-with open(config["samples"]) as f:
-    SAMPLES = f.read().splitlines()
-
-# with open(config["runs"]) as f:
-#     SAMPLES = []
-#     for row in f:
-#         sample = row.split("_")[0]
-#         if sample not in SAMPLES:
-#             SAMPLES.append(sample)
-# print(SAMPLES)
+#Create list of samples
+if config["group_sample_runs_by_batch"]:
+    tmp = 2
+else:
+    tmp = 1
+SAMPLES = sorted(list(set([('_').join(run.split('/')[-1].split('_')[0:tmp]) for run in SAMPLE_RUNS])))
 
 # Create list of chromosomes
 if Path(config["results"] + "db/chromosomes.list").is_file():
@@ -67,10 +64,13 @@ include: "rules/variant_calling.smk"
 #include: "rules/variant_recalibration.smk"
 include: "rules/hard_filter.smk"
 include: "rules/imputation.smk"
+include: "rules/annotation.smk"
 #include: "rules/gene_counts.smk"
 include: "rules/phasing.smk"
 #include: "rules/kinship.smk"
 #include: "rules/relations.smk"
+include: "rules/stats/TajimaD.smk"
+include: "rules/stats/rare_variant_tests.smk"
 include: "rules/scikit-allel.smk"
 include: "rules/fst.smk"
 include: "rules/pca.smk"
@@ -81,6 +81,10 @@ include: "rules/concordance.smk"
 include: "rules/coverage.smk"
 include: "rules/one_off.smk"
 include: "rules/misc.smk"
+
+#ruleorder: concat_autosomes > bcf_to_vcfgz
+#ruleorder: vep > bcf_to_vcfgz
+#ruleorder: vcfgz_to_bcf > call_SVs
 
 rule all:
     """Generate target files. This rule runs automatically when Snakefile is run.

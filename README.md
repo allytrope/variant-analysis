@@ -39,14 +39,14 @@ Writing the output files requires finding the rule in `workflow/rules/` for what
 
 ```py
 output:
-    alignment = config["results"] + "alignments/raw/{sample}.bam",
+    alignment = config["results"] + "alignments/raw/{batch}/{sample}.bam",
 ```
 
 Now, place that inside list of target files back inside our `Snakefile`, making sure to replace `config["results"]` with just `results`. Also replace `{sample}` with the actual sample name that we are interested in.
 
 ```py
 target_files = [
-        results + "alignments/raw/WGS12345.bam",
+        results + "alignments/raw/example_batch/WGS12345.bam",
 ]
 ```
 
@@ -54,8 +54,8 @@ Often, many samples will be worked on at the same time. To facilitate this, we c
 
 ```py
 target_files = [
-        results + "alignments/raw/WGS12345.bam",
-        results + "alignments/raw/WGS23456.bam",
+        results + "alignments/raw/example_batch/WGS12345.bam",
+        results + "alignments/raw/example_batch/WGS23456.bam",
 ]
 ```
 
@@ -63,14 +63,14 @@ Although a more efficient way is to utilize the `expand` function:
 
 ```py
 target_files = [
-        expand(results + "alignments/raw/{sample}.bam", sample=[12345, 23456]),
+        expand(results + "alignments/raw/example_batch/{sample}.bam", sample=[12345, 23456]),
 ]
 ```
 
-A couple convenience variables are preset, `SAMPLE_NAMES` and `CHROMOSOMES`. `SAMPLE_NAMES` stores all of the sample names listed in `config["samples"]`. And `CHROMOSOMES` stores all numbered chromosomes plus X, Y and MT if in the reference genome.
+A couple convenience functions are preset, `SAMPLES()`, `SAMPLE_RUNS()` and `CHROMOSOMES()`. `SAMPLE_RUNS()` gathers all of the sample names listed in `config["runs"]`. `SAMPLES()` groups the values from `SAMPLE_RUNS()` per sample. And `CHROMOSOMES()` stores all autosomes plus X, Y and MT if in the reference genome.
 ```py
 target_files = [
-        expand(results + "alignments/raw/{sample}.bam", sample=SAMPLE_NAMES),
+        expand(results + "alignments/raw/example_batch/{sample}.bam", sample=SAMPLES()),
 ]
 ```
 
@@ -80,10 +80,10 @@ output:
     config["results"] + "genotypes/pass/{dataset}.{mode}.chr{chr}.vcf.gz",
 ```
 
-For our config file, we could have the following below. `{dataset}` can essentially be named anything, just be consistent. Modifying this same is helpful if we want to have multiple parallel analyses when tweaking parameters. Currently, this workflow only works with `{mode}` set to SNP. This `mode` is for future work with indels or indels and SNPs together.
+For our config file, we could have the following below. `{dataset}` can essentially be named anything, just be consistent. Modifying this same is helpful if we want to have multiple parallel analyses when tweaking parameters. Currently, this workflow only works with `{mode}` set to SNP. This `mode` is for future integration with indels or indels and SNPs together.
 ```py
 target_files = [
-    expand(results + "genotypes/pass/rhesus.SNP.chr{chr}.vcf.gz", chr=CHROMOSOMES),
+    expand(results + "genotypes/pass/rhesus.SNP.chr{chr}.vcf.gz", chr=CHROMOSOMES()),
 ]
 ```
 

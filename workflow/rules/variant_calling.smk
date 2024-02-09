@@ -16,13 +16,13 @@ rule cut_adapters_with_i5_i7:
     wildcard_constraints:
         seq = "WGS|WES|AMP",
     input:
-        reads = lambda wildcards: expand(config["reads"] + "{seq}{sample_run}.{read}.fastq.gz",
-        #reads = lambda wildcards: expand(config["reads"] + "{seq}{sample}_{run}.{read}.fastq.gz",
+        reads = lambda wildcards: expand(config["reads"] + "{batch}/{seq}{sample_run}.{read}.fastq.gz",
+            batch=wildcards.batch,
             seq=wildcards.seq,
             sample_run=wildcards.sample_run,
             read=["R1", "R2"]),
     output: 
-        trimmed = temp(expand(config["results"] + "trimmed/{{seq}}{{sample_run}}.{read}.fastq.gz",
+        trimmed = temp(expand(config["results"] + "trimmed/{{batch}}/{{seq}}{{sample_run}}.{read}.fastq.gz",
             read=["R1", "R2"])),
     params: 
         pre_i7 = "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC",
@@ -143,11 +143,12 @@ rule align:
     input:
         ref = config["ref_fasta"],
         idxs = multiext(config["ref_fasta"], ".amb", ".ann", ".bwt", ".pac", ".sa"),
-        trimmed = lambda wildcards: expand(config["results"] + "trimmed/{sample_run}.{read}.fastq.gz",
+        trimmed = lambda wildcards: expand(config["results"] + "trimmed/{batch}/{sample_run}.{read}.fastq.gz",
+            batch=wildcards.batch,
             sample_run=wildcards.sample_run,
             read=["R1", "R2"]),
     output:
-        alignment = temp(config["results"] + "alignments/raw/{sample_run}.bam"),
+        alignment = temp(config["results"] + "alignments/raw/{batch}/{sample_run}.bam"),
     threads: 24
     resources: nodes = 24
     conda: "../envs/bio.yaml"
@@ -160,9 +161,9 @@ rule alignment_postprocessing:
     wildcard_constraints:
         seq = "WES|WGS",
     input:
-        alignment = config["results"] + "alignments/raw/{seq}{sample_run}.bam",
+        alignment = config["results"] + "alignments/raw/{batch}/{seq}{sample_run}.bam",
     output:
-        alignment = temp(config["results"] + "alignments/markdup/{seq}{sample_run}.bam"),
+        alignment = temp(config["results"] + "alignments/markdup/{batch}/{seq}{sample_run}.bam"),
     conda: "../envs/bio.yaml"
     threads: 1
     resources: nodes = 1
@@ -184,9 +185,9 @@ rule alignment_postprocessing_without_markdup:
     wildcard_constraints:
         seq = "AMP|GBS",
     input:
-        alignment = config["results"] + "alignments/raw/{seq}{sample_run}.bam",
+        alignment = config["results"] + "alignments/raw/{batch}/{seq}{sample_run}.bam",
     output:
-        alignment = temp(config["results"] + "alignments/markdup/{seq}{sample_run}.bam"),
+        alignment = temp(config["results"] + "alignments/markdup/{batch}/{seq}{sample_run}.bam"),
     conda: "../envs/bio.yaml"
     threads: 1
     resources: nodes = 1
@@ -209,11 +210,11 @@ rule base_recalibration:
         ref_idx = config["ref_fasta"] + ".fai",
         ref_gzi = config["ref_fasta"] + ".gzi",
         ref_dict = ".".join(config["ref_fasta"].split(".")[:-2]) + ".dict",
-        bam = config["results"] + "alignments/markdup/{sample_run}.bam",
+        bam = config["results"] + "alignments/markdup/{batch}/{sample_run}.bam",
         known_variants = config["BQSR_known_variants"],
         indexed_known_variants = config["BQSR_known_variants"] + ".tbi",
     output:
-        config["results"] + "alignments/recalibrated/recal_tables/{sample_run}.BQSR.recal",
+        config["results"] + "alignments/recal_tables/{batch}/{sample_run}.BQSR.recal",
     threads: 1
     resources: nodes = 1
     conda: "../envs/gatk.yaml"
@@ -232,10 +233,10 @@ rule apply_base_recalibration:
         ref = config["ref_fasta"],
         ref_idx = config["ref_fasta"] + ".fai",
         ref_dict = ".".join(config["ref_fasta"].split(".")[:-2]) + ".dict",
-        bam = config["results"] + "alignments/markdup/{sample_run}.bam",
-        recal = config["results"] + "alignments/recalibrated/recal_tables/{sample_run}.BQSR.recal",
+        bam = config["results"] + "alignments/markdup/{batch}/{sample_run}.bam",
+        recal = config["results"] + "alignments/recal_tables/{batch}/{sample_run}.BQSR.recal",
     output:
-        config["results"] + "alignments/recalibrated/{sample_run}.bam",
+        config["results"] + "alignments/recalibrated/{batch}/{sample_run}.bam",
     threads: 1
     resources: nodes = 1
     conda: "../envs/gatk.yaml"
@@ -246,7 +247,8 @@ rule apply_base_recalibration:
             --bqsr-recal-file {input.recal} \
             -O {output} \
             --tmp-dir ~/tmp/{rule} \
-            --create-output-bam-index false"""
+            --create-output-bam-index false; \
+        """
 
 # def collect_runs_from_sample(wildcards):
 #     """Find runs from same sample."""
@@ -274,7 +276,8 @@ def collect_runs_from_sample(wildcards):
     """Find runs from same sample."""
     sample_runs = []
     for run in SAMPLE_RUNS:
-        if wildcards.sample == run.split("_")[0]:
+        # if wildcards.sample == run.split("_")[0]:
+        if wildcards.sample_run in run:
             sample_runs.append(config["results"] + "alignments/recalibrated/" + run + ".bam")
     return sample_runs
 rule call_variants:
@@ -290,8 +293,8 @@ rule call_variants:
     params:
         bams = lambda wildcards, input: list(map(lambda bam: "-I " + bam, input.bams)),
     output:
-        vcf = config["results"] + "gvcf/{sample}.g.vcf.gz",
-        tbi = config["results"] + "gvcf/{sample}.g.vcf.gz.tbi",
+        vcf = config["results"] + "gvcf/{sample_run}.g.vcf.gz",
+        tbi = config["results"] + "gvcf/{sample_run}.g.vcf.gz.tbi",
     conda: "../envs/gatk.yaml"
     threads: 9  # 4 is default
     resources: nodes = 9

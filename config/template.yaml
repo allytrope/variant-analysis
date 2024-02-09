@@ -1,0 +1,89 @@
+__use_yte__: true
+
+__definitions__:
+    - from pathlib import Path
+    - from snakemake.io import expand
+    - |
+        def SAMPLE_RUNS():
+            with open(this["runs"]) as f:
+                return f.read().splitlines()
+    - |
+        def SAMPLES():
+            if this["group_sample_runs_by_batch"]:
+                tmp = 2
+            else:
+                tmp = 1
+            # Extract sample name from run
+            samples = sorted(list(set([('_').join(run.split('/')[-1].split('_')[0:tmp]) for run in SAMPLE_RUNS()])))
+            print(samples)
+            return samples
+            # with open(this["samples"]) as f:
+            #     return f.read().splitlines()
+    - |
+        def CHROMOSOMES():
+            if Path(this["results"] + "db/chromosomes.list").is_file():
+                with open(this["results"] + "db/chromosomes.list") as f:
+                    return f.read().splitlines()
+            else:
+                print("No chromosome file yet.")
+
+project: project_name/
+
+## Users should add files and paths here.
+# Project directories to deposit output files
+path: /home/username/variant-analysis/  # Path to variant-analysis directory
+resources: ?this["path"] + "resources/" + this["project"]
+results: ?this["path"] + "results/" + this["project"]
+log: ?this["path"] + "log/" + this["project"]
+
+# Directory containing FASTQ files
+reads: ?this["resources"] + "reads/"
+
+barcodes:
+    # Only for GBS. A tab-delimited file with the first column as {organism_id} and the second as the barcode (e.g., AACGTT)
+    GBS_barcodes: ?this["resources"] + "barcodes/GBS_barcodes.tsv"
+    
+    # Only for AMP. A tab-delimited file with the first column as {organism_id},
+    # the second as the i7 adapter, and the third as i5 adapter.
+    AMP_barcodes: ?this["resources"] + "barcodes/AMP_barcodes.tsv"
+
+# One run name per line
+runs: ?this["resources"] + "samples/runs.list"
+
+# Tell whether to treat sequences from the same animal, but from different batches, as the same or different "samples"
+# Different seq types, however, will be treated separately regardless
+group_sample_runs_by_batch: False
+
+# FASTA reference genome
+ref_fasta: ?this["resources"] + "ref_fna/Macaca_mulatta.Mmul_10.dna.toplevel.fa.gz"  # Taken from ENSEMBL. Uses chromosomes as 1, 2 ... X, Y...
+
+gtf3: ?this["resources"] + "annotations/Macaca_mulatta.Mmul_10.110.gtf.gz"
+
+BQSR_known_variants: ?this["resources"] + "ref_vcf/macaca_mulatta.vcf.gz"
+
+# Tab-delimited. Column1 is child id, column2 is sire id, column3 is dam id. Also, remove any names with underscores.
+ped: ''
+pedigree: this["resources"] + "pedigree/pedigree.tsv"
+demographics: ''
+
+hard_filter:
+    QUAL: 30.0
+    QD: 2.0
+    SOR: 3.0
+    FS: 60.0
+    MQ: 40.0
+    MQRankSum: -12.5
+    ReadPosRankSum: -8.0
+
+filtering:
+    min_AF: 0.05
+    max_AF: 0.95
+    min_AC: 10
+
+# Files to create. The paths can be found as under "output" in the rules of .smk files.
+# Every output should start with "results" to direct to the correct path.
+target_files:
+# A simple target file:
+- ?this["results"] + "haplotypes/SHAPEIT4/all_animals.SNP.chr17.vcf.gz"
+# Example of a more complex target file:
+- ?expand(this["results"] + "vcf/{sample}.g.vcf.gz", sample=SAMPLES())
