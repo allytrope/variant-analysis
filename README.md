@@ -98,7 +98,7 @@ To find the reason for Snakemake rerunning files, run `snakemake -n -r`. One of 
 
 To actually run the program on a Sun Grid Engine cluster, the following command can be issued from the project directory:
 ```sh
-NAME=smk_variant; LOG=log/dirname; nohup snakemake --profile profile --cluster "qsub -V -b n -cwd -pe smp {threads} -N $NAME -o $NAME.out.log -e $NAME.err.log" > $LOG/$NAME.smk.log 2>&1
+NAME=smk_variant; LOG=log/dirname; nohup snakemake --profile profile --configfile config/template.yaml --cluster "qsub -V -b n -cwd -pe smp {threads} -N $NAME -o $NAME.out.log -e $NAME.err.log" > $LOG/$NAME.smk.log 2>&1
 ```
 
 Most of the Snakemake settings are stored in `profile/config.yaml`, which is called by the `--profile profile` option. The values there can be modified to adjust the maximum number of jobs and other information. The `--cluster` option sets the options used by the cluster. These can be left as is. However, set the names for variables `NAME` and `LOG`. `NAME` will be the name given to the cluster's queue and viewable with the `qstat` command. `NAME` is also used for the log files. `LOG` is then the directory in which the log files will be stored. This can be changed as needed to help organize logs.
