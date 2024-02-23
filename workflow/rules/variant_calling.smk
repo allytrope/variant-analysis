@@ -167,16 +167,14 @@ rule alignment_postprocessing:
     conda: "../envs/bio.yaml"
     threads: 1
     resources: nodes = 1
+    # This line can go under each samtools            -T ~/tmp/{rule} \
     shell: """
         samtools sort {input.alignment} \
             -n \
-            -T ~/tmp/{rule} \
         | samtools fixmate - - \
             -m \
         | samtools sort - \
-            -T ~/tmp/{rule} \
         | samtools markdup - {output.alignment} \
-            -T ~/tmp/{rule} \
         """
 
 rule alignment_postprocessing_without_markdup:
@@ -194,11 +192,9 @@ rule alignment_postprocessing_without_markdup:
     shell: """
         samtools sort {input.alignment} \
             -n \
-            -T ~/tmp/{rule} \
         | samtools fixmate - - \
             -m \
         | samtools sort - \
-            -T ~/tmp/{rule} \
             -o {output.alignment} \
         """
 
@@ -218,14 +214,13 @@ rule base_recalibration:
     threads: 1
     resources: nodes = 1
     conda: "../envs/gatk.yaml"
-    # Note tmp directory must already exist
     shell: """
         gatk --java-options '-Xmx8g' BaseRecalibrator \
             -R {input.ref} \
             -I {input.bam} \
             --known-sites {input.known_variants} \
             -O {output} \
-            --tmp-dir ~/tmp/{rule}"""
+        """
 
 rule apply_base_recalibration:
     """Correct systemic error in base quality scores."""
@@ -246,30 +241,8 @@ rule apply_base_recalibration:
             -I {input.bam} \
             --bqsr-recal-file {input.recal} \
             -O {output} \
-            --tmp-dir ~/tmp/{rule} \
             --create-output-bam-index false; \
         """
-
-# def collect_runs_from_sample(wildcards):
-#     """Find runs from same sample."""
-#     sample_runs = []
-#     for run in SAMPLE_RUNS:
-#         if wildcards.sample in run:
-#             sample_runs.append(config["results"] + "alignments/recalibrated/" + run + ".bam")
-#     return sample_runs
-# rule merge_sample_runs:
-#     """Merge runs from same sample."""
-#     input:
-#         bams = collect_runs_from_sample
-#     output:
-#         merged = config["results"] + "alignments/merged/{sample}.bam",
-#     threads: 1
-#     resources: nodes = 1
-#     conda: "../envs/bio.yaml"
-#     shell: """
-#         samtools merge {input.bams} \
-#             -o {output.merged} \
-#         """
 
 ## Variant calling
 def collect_runs_from_sample(wildcards):
@@ -306,7 +279,7 @@ rule call_variants:
             -O {output.vcf} \
             -ERC GVCF \
             --native-pair-hmm-threads {threads} \
-            --tmp-dir ~/tmp/{rule}"""
+        """
 
 # Consolidation of GVCFs
 rule create_sample_map:

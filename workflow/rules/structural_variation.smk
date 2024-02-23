@@ -1,61 +1,65 @@
 """Workflow for determing structural variation in genomes, that is, deletions, insertions, inversions, tandem duplications, andBND."""
 
 
-## Short-read SV calling
+# Merges calls from other SV callers.
+rule SV_consensus:
+    """Find consensus between SV callers."""
+    input:
+        list_of_vcfs = lambda wildcards: expand(config["results"] + "structural_variants/{SV_caller}/merged/{dataset}.{SV_type}.genotyped.pass.bcf",
+            SV_caller=["delly", "NanoSV"],
+            dataset=wildcards.dataset),
+    output:
+        merged = config["results"] + "structural_variants/SURVIVOR/{dataset}.bcf",
+    params:
+        max_distance = 1000,  # in bases
+        min_consensus = 2,
+        match_type = 1,  # 0=False, 1=True
+        match_strand = 1,  # 0=False, 1=True
+        unknown = 0,  # Not sure what this does...
+        min_length = 0,  # Minimum length of SVs
+    threads: 1
+    resources: nodes = 1
+    conda: "../envs/delly2.yaml"
+    shell: """
+        SURVIVOR merge <(for FILE in {input.list_of_vcfs}; do echo $FILE; done) \
+            {params.max_distance} \
+            {params.min_consensus} \
+            {params.match_type} \
+            {params.match_strand} \
+            {params.unknown} \
+            {params.min_length} \
+            {output.merged} \
+        """
 
-# rule call_SVs:
-#     """Call SVs per sample."""
-#     input:
-#         bam = config["results"] + "alignments/recalibrated/{sample}.bam",
-#         ref_fasta = config["ref_fasta"],
-#     output:
-#         bcf = config["results"] + "structural_variants/SVs/{sample}.bcf",
-#     threads: 1
-#     resources: nodes = 1
-#     conda: "../envs/delly.yaml"
+# NanoSV
+# rule call_SVs_NanoSV:
+#     """SV call LRS data using NanoSV."""
+#     threads: 8
 #     shell: """
-#         delly call {input.bam} \
-#             -g {input.ref_fasta} \
-#             -o {output.bcf} \
+#         NanoSV \
+#             -t {threads} \
 #         """
 
+# Manta
+#rule call_SVs_Manta:
 
-rule merge_BAMs:
-    """Merge BAM runs from same samples."""
-    input:
-        bams = collect_runs_from_sample,  # From variant_calling.smk
-        bams_idx = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_sample(wildcards))),
-    output:
-        bam = config["results"] + "alignments/recalibrated/merged/{sample}.bam",
-    threads: 4
-    resources: nodes = 4
-    conda: "../envs/bio.yaml"
-    shell: """
-        samtools merge {input.bams} \
-            -o {output.bam} \
-            -@ {threads} \
-        """
+## DELLY
 
 rule call_SVs:
     """Call SVs per sample (for short-read WGS)."""
     wildcard_constraints:
         seq = "WGS",
     input:
-        # bam = "/master/abagwell/variant-analysis/resources/rhesus/reads/LRS/{sample}.final.bam",
-        # bai = "/master/abagwell/variant-analysis/resources/rhesus/reads/LRS/{sample}.final.bam.bai",
-        bam = config["results"] + "alignments/recalibrated/merged/{seq}{indiv_id}.bam",
-        bai = config["results"] + "alignments/recalibrated/merged/{seq}{indiv_id}.bam.bai",
-        # bams = collect_runs_from_sample,  # From variant_calling.smk
-        # bams_idx = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_sample(wildcards))),
+        bams = collect_runs_from_sample,  # From variant_calling.smk
+        bams_idx = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_sample(wildcards))),
         ref_fasta = config["ref_fasta"],
-        # Indexed ref_fasta
     output:
-        bcf = config["results"] + "structural_variants/SVs/per_sample/{seq}{indiv_id}.bcf",
+        bcf = config["results"] + "structural_variants/delly/per_sample/{seq}{indiv_id}.bcf",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/delly.yaml"
+    conda: "../envs/delly2.yaml"
     shell: """
-        delly call {input.bam} \
+        delly call <(samtools merge {input.bams} -o -) \
             -g {input.ref_fasta} \
             -o {output.bcf} \
         """
@@ -65,21 +69,16 @@ rule call_SVs_LRS:
     wildcard_constraints:
         seq = "LRS",
     input:
-        # bam = "/master/abagwell/variant-analysis/resources/rhesus/reads/LRS/{sample}.final.bam",
-        # bai = "/master/abagwell/variant-analysis/resources/rhesus/reads/LRS/{sample}.final.bam.bai",
-        bam = config["results"] + "alignments/recalibrated/merged/{seq}{indiv_id}.bam",
-        bai = config["results"] + "alignments/recalibrated/merged/{seq}{indiv_id}.bam.bai",
-        # bams = collect_runs_from_sample,  # From variant_calling.smk
-        # bams_idx = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_sample(wildcards))),
+        bams = collect_runs_from_sample,  # From variant_calling.smk
+        bams_idx = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_sample(wildcards))),
         ref_fasta = config["ref_fasta"],
-        # Indexed ref_fasta
     output:
-        bcf = config["results"] + "structural_variants/SVs/per_sample/{seq}{indiv_id}.bcf",
+        bcf = config["results"] + "structural_variants/delly/per_sample/{seq}{indiv_id}.bcf",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/delly.yaml"
+    conda: "../envs/delly2.yaml"
     shell: """
-        delly lr {input.bam} \
+        delly lr <(samtools merge {input.bams} -o -) \
             -y ont \
             -g {input.ref_fasta} \
             -o {output.bcf} \
@@ -90,10 +89,10 @@ rule merge_SVs:
     input:
         bcfs = expand(config["results"] + "structural_variants/SVs/per_sample/{sample}.bcf", sample=SAMPLES),
     output:
-        bcf = config["results"] + "structural_variants/SVs/merged/{dataset}.ungenotyped.bcf",
+        bcf = config["results"] + "structural_variants/delly/merged/{dataset}.ungenotyped.bcf",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/delly.yaml"
+    conda: "../envs/delly2.yaml"
     shell: """
         delly merge {input.bcfs} \
             -o {output.bcf} \
@@ -104,21 +103,17 @@ rule genotype_merged_SVs:
     wildcard_constraints:
         seq = "WGS",
     input:
-        bam = config["results"] + "alignments/recalibrated/merged/{seq}{indiv_id}.bam",
-        bai = config["results"] + "alignments/recalibrated/merged/{seq}{indiv_id}.bam.bai",
-        #bam = "/master/abagwell/variant-analysis/resources/rhesus/reads/LRS/{sample}.final.bam",
-        #bai = "/master/abagwell/variant-analysis/resources/rhesus/reads/LRS/{sample}.final.bam.bai",
-        # bams = collect_runs_from_sample,  # From variant_calling.smk
-        # bams_idx = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_sample(wildcards))),
-        bcf = config["results"] + "structural_variants/SVs/merged/{dataset}.ungenotyped.bcf",
+        bams = collect_runs_from_sample,  # From variant_calling.smk
+        bams_idx = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_sample(wildcards))),
+        bcf = config["results"] + "structural_variants/delly/merged/{dataset}.ungenotyped.bcf",
         ref_fasta = config["ref_fasta"],
     output:
-        bcf = config["results"] + "structural_variants/SVs/all_sites/{dataset}.{seq}{indiv_id}.genotyped.bcf",
+        bcf = config["results"] + "structural_variants/delly/all_sites/{dataset}.{seq}{indiv_id}.genotyped.bcf",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/delly.yaml"
+    conda: "../envs/delly2.yaml"
     shell: """
-        delly call {input.bam} \
+        delly call <(samtools merge {input.bams} -o -) \
             -g {input.ref_fasta} \
             -v {input.bcf} \
             -o {output.bcf} \
@@ -129,21 +124,19 @@ rule genotype_merged_SVs_LRS:
     wildcard_constraints:
         seq = "LRS",
     input:
-        bam = config["results"] + "alignments/recalibrated/merged/{seq}{indiv_id}.bam",
-        bai = config["results"] + "alignments/recalibrated/merged/{seq}{indiv_id}.bam.bai",
-        #bam = "/master/abagwell/variant-analysis/resources/rhesus/reads/LRS/{sample}.final.bam",
-        #bai = "/master/abagwell/variant-analysis/resources/rhesus/reads/LRS/{sample}.final.bam.bai",
-        # bams = collect_runs_from_sample,  # From variant_calling.smk
-        # bams_idx = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_sample(wildcards))),
-        bcf = config["results"] + "structural_variants/SVs/merged/{dataset}.ungenotyped.bcf",
+        bams = collect_runs_from_sample,  # From variant_calling.smk
+        bams_idx = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_sample(wildcards))),
+        # bam = config["results"] + "alignments/recalibrated/merged/{seq}{indiv_id}.bam",
+        # bai = config["results"] + "alignments/recalibrated/merged/{seq}{indiv_id}.bam.bai",
+        bcf = config["results"] + "structural_variants/delly/merged/{dataset}.ungenotyped.bcf",
         ref_fasta = config["ref_fasta"],
     output:
-        bcf = config["results"] + "structural_variants/SVs/all_sites/{dataset}.{seq}{indiv_id}.genotyped.bcf",
+        bcf = config["results"] + "structural_variants/delly/all_sites/{dataset}.{seq}{indiv_id}.genotyped.bcf",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/delly.yaml"
+    conda: "../envs/delly2.yaml"
     shell: """
-        delly lr {input.bam} \
+        delly lr <(samtools merge {input.bams} -o -) \
             -y ont \
             -g {input.ref_fasta} \
             -v {input.bcf} \
@@ -154,11 +147,11 @@ rule merge_all_sites_SVs:
     """Merge samples with sites from all other samples."""
     input:
         bcfs = lambda wildcards: expand(
-            config["results"] + "structural_variants/SVs/all_sites/{dataset}.{sample}.genotyped.bcf",
+            config["results"] + "structural_variants/delly/all_sites/{dataset}.{sample}.genotyped.bcf",
                 dataset=wildcards.dataset,
                 sample=SAMPLES),
     output:
-        bcf = config["results"] + "structural_variants/SVs/merged/{dataset}.genotyped.bcf",
+        bcf = config["results"] + "structural_variants/delly/merged/{dataset}.genotyped.bcf",
     threads: 1
     resources: nodes = 1
     conda: "../envs/bio.yaml"
@@ -172,13 +165,13 @@ rule merge_all_sites_SVs:
 rule filter_SVs:
     """Filter structural variants."""
     input:
-        bcf = config["results"] + "structural_variants/SVs/merged/{dataset}.genotyped.bcf",
-        csi = config["results"] + "structural_variants/SVs/merged/{dataset}.genotyped.bcf.csi",
+        bcf = config["results"] + "structural_variants/delly/merged/{dataset}.genotyped.bcf",
+        csi = config["results"] + "structural_variants/delly/merged/{dataset}.genotyped.bcf.csi",
     output:
-        bcf = config["results"] + "structural_variants/SVs/merged/{dataset}.genotyped.filtered.bcf",
+        bcf = config["results"] + "structural_variants/delly/merged/{dataset}.genotyped.filtered.bcf",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/delly.yaml"
+    conda: "../envs/delly2.yaml"
     shell: """
         delly filter {input.bcf} \
             -f germline \
@@ -188,10 +181,10 @@ rule filter_SVs:
 rule passing_SVs:
     """Filter structural variants."""
     input:
-        bcf = config["results"] + "structural_variants/SVs/merged/{dataset}.genotyped.filtered.bcf",
-        csi = config["results"] + "structural_variants/SVs/merged/{dataset}.genotyped.filtered.bcf.csi",
+        bcf = config["results"] + "structural_variants/delly/merged/{dataset}.genotyped.filtered.bcf",
+        csi = config["results"] + "structural_variants/delly/merged/{dataset}.genotyped.filtered.bcf.csi",
     output:
-        bcf = config["results"] + "structural_variants/SVs/merged/{dataset}.genotyped.pass.bcf",
+        bcf = config["results"] + "structural_variants/delly/merged/{dataset}.genotyped.pass.bcf",
     threads: 1
     resources: nodes = 1
     conda: "../envs/bio.yaml"
@@ -207,9 +200,9 @@ rule split_by_SV_type:
     wildcard_constraints:
         SV_type = "DEL|INS|DUP|INV|BND|ALL",
     input:
-        bcf = config["results"] + "structural_variants/SVs/merged/{dataset}.genotyped.filtered.bcf",
+        bcf = config["results"] + "structural_variants/delly/merged/{dataset}.genotyped.filtered.bcf",
     output:
-        bcf = config["results"] + "structural_variants/SVs/merged/{dataset}.{SV_type}.genotyped.pass.bcf",
+        bcf = config["results"] + "structural_variants/delly/merged/{dataset}.{SV_type}.genotyped.pass.bcf",
     threads: 1
     resources: nodes = 1
     conda: "../envs/bio.yaml"
@@ -220,6 +213,8 @@ rule split_by_SV_type:
             -Oz \
             -o {output.bcf} \
         """
+
+## Sniffles
 
 ## Using Sniffles
 # rule sniffles:
@@ -246,18 +241,20 @@ rule split_by_SV_type:
 rule sniffles_SNF:
     """Call SVs as SNF file for long read sequences on a sample."""
     input:
-        bam = "/master/abagwell/variant-analysis/resources/rhesus/reads/LRS/{sample}.final.bam",
-        bai = "/master/abagwell/variant-analysis/resources/rhesus/reads/LRS/{sample}.final.bam.bai",
+        bams = collect_runs_from_sample,  # From variant_calling.smk
+        bams_idx = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_sample(wildcards))),
+        # bam = "/master/abagwell/variant-analysis/resources/rhesus/reads/LRS/{sample}.final.bam",
+        # bai = "/master/abagwell/variant-analysis/resources/rhesus/reads/LRS/{sample}.final.bam.bai",
         ref_fasta = config["ref_fasta"],
     output:
         #vcf = config["results"] + "structural_variants/SVs/sniffles/{dataset}.{SV_type}.genotyped.pass.vcf.gz",
-        snf = config["results"] + "structural_variants/SVs/sniffles/{sample}.snf",
+        snf = config["results"] + "structural_variants/sniffles/{sample}.snf",
     threads: 24
     resources: nodes = 24
     conda: "../envs/rvtests.yaml"
     shell: """
         sniffles \
-            --input {input.bam} \
+            --input <(samtools merge {input.bams} -o -) \
             --snf {output.snf} \
             --reference {input.ref_fasta} \
             --threads {threads} \
@@ -267,12 +264,12 @@ rule sniffles_merge_SNFs:
     """Merge SNF files."""
     input:
         snfs = lambda wildcards: expand(
-            config["results"] + "structural_variants/SVs/sniffles/{sample}.snf",
+            config["results"] + "structural_variants/sniffles/{sample}.snf",
                 sample=SAMPLES),
         ref_fasta = config["ref_fasta"],
     output:
         #vcf = config["results"] + "structural_variants/SVs/sniffles/{dataset}.{SV_type}.genotyped.pass.vcf.gz",
-        vcf = config["results"] + "structural_variants/SVs/sniffles/LRS.vcf.gz",
+        vcf = config["results"] + "structural_variants/sniffles/LRS.vcf.gz",
     threads: 24
     resources: nodes = 24
     conda: "../envs/rvtests.yaml"
@@ -289,9 +286,9 @@ rule split_sniffles_by_SV_type:
     wildcard_constraints:
         SV_type = "DEL|INS|DUP|INV|BND|ALL",
     input:
-        vcf = config["results"] + "structural_variants/SVs/sniffles/LRS.vcf.gz",
+        vcf = config["results"] + "structural_variants/sniffles/LRS.vcf.gz",
     output:
-        bcf = config["results"] + "structural_variants/SVs/sniffles/LRS.{SV_type}.bcf",
+        bcf = config["results"] + "structural_variants/sniffles/LRS.{SV_type}.bcf",
     threads: 1
     resources: nodes = 1
     conda: "../envs/bio.yaml"
@@ -303,75 +300,9 @@ rule split_sniffles_by_SV_type:
             -o {output.bcf} \
         """
 
-## For plotting reads
-# Under development
-# rule SV_loci:
-#     """Create BED file of SV regions."""
-#     input:
-#         vcf = config["results"] + "structural_variants/SVs/merged/{dataset}.{SV_type}.genotyped.pass.vcf.gz",,
-#     output:
-
-#     threads: 1
-#     resources: nodes = 1
-#     conda: "../envs/bio.yaml"
-#     shell: """
-#         bcftools query -f "%CHROM\t%POS\t%ALT\n" 0000.vcf \
-#         | sed 's/\t/\n/2;s/:/\t/g;' \
-#         | sed 's/[ACTG]//g;' \
-#         | sed 's/\[//g;s/\]//g' \
-#         | awk '{print $1"\t"($2-50)"\t"($2+50)"\tid"NR;}' \
-#         > 0000.regions.bed
-#         """
-
-# Without ALT loci:
-"""
-bcftools query -f "%CHROM\t%POS\n" {input.vcf} \
-| awk '{print $1"\t"($2-50)"\t"($2+50)"\tid"NR;}' \
-> regions.bed
-"""
-
-
-# Under development
-# rule plot_reads:
-#     """Useful for checking a region looks to be a true SV."""
-#     input:
-#         bam = config["results"] + "alignments/recalibrated/{sample_run}.bam",
-#         bai = config["results"] + "alignments/recalibrated/{sample_run}.bam.bai",
-#         genome = config["ref_fasta"],
-#     conda: "../envs/delly.yaml"
-#     shell: """
-#         wally region {input.bam} \
-#             -r {} \
-#             -g {input.genome} \
-#             -cup \
-#             -s 2 \
-#         """
-
-# Test example
-"""
-wally region /master/abagwell/variant-analysis/results/rhesus/alignments/recalibrated/WGS10814_CKDN230003092-1A_HW3LFDSX5_L1.bam -r 2:14731445-14731545,1:211772364-211772464 -g /master/abagwell/variant-analysis/resources/rhesus/ref_fna/Macaca_mulatta.Mmul_10.dna.toplevel.fa.gz -cup -s 2
-"""
-
-# Under development
-rule plot_reads:
-    """Useful for checking a region looks to be a true SV."""
-    input:
-        bam = config["results"] + "alignments/recalibrated/{sample_run}.bam",
-        bai = config["results"] + "alignments/recalibrated/{sample_run}.bam.bai",
-        genome = config["ref_fasta"],
-    #conda: "../envs/delly.yaml"
-    shell: """
-        wally region \
-            -b {input.bam} \
-            -r {} \
-            -g {input.genome} \
-            -cup \
-            -s 2 \
-        """
-
-
 ## Mappability map
 
+# Should try to merging this rule into the next
 rule chop_ref_fna:
     """Chop reference FASTA into R1 and R2 FASTQ.
 
@@ -379,14 +310,14 @@ rule chop_ref_fna:
     input:
         ref_fasta = config["ref_fasta"],
     output:
-        R1 = temp(config["results"] + "structural_variants/mappability/chopped_ref_fna.R1.fq.gz"),
-        R2 = temp(config["results"] + "structural_variants/mappability/chopped_ref_fna.R2.fq.gz"),
+        R1 = temp(config["results"] + "structural_variants/delly/mappability/chopped_ref_fna.R1.fq.gz"),
+        R2 = temp(config["results"] + "structural_variants/delly/mappability/chopped_ref_fna.R2.fq.gz"),
     params:
-        R1 = config["results"] + "structural_variants/mappability/chopped_ref_fna.R1",
-        R2 = config["results"] + "structural_variants/mappability/chopped_ref_fna.R2",
+        R1 = config["results"] + "structural_variants/delly/mappability/chopped_ref_fna.R1",
+        R2 = config["results"] + "structural_variants/delly/mappability/chopped_ref_fna.R2",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/delly.yaml"
+    conda: "../envs/delly2.yaml"
     shell: """
         dicey chop {input.ref_fasta} \
             --fq1 {params.R1} \
@@ -398,10 +329,10 @@ rule align_chopped_ref_fna:
     input:
         ref_fasta = config["ref_fasta"],
         ref_indices = multiext(config["ref_fasta"], ".amb", ".ann", ".bwt", ".pac", ".sa"),
-        R1 = config["results"] + "structural_variants/mappability/chopped_ref_fna.R1.fq.gz",
-        R2 = config["results"] + "structural_variants/mappability/chopped_ref_fna.R2.fq.gz",
+        R1 = config["results"] + "structural_variants/delly/mappability/chopped_ref_fna.R1.fq.gz",
+        R2 = config["results"] + "structural_variants/delly/mappability/chopped_ref_fna.R2.fq.gz",
     output:
-        bam = config["results"] + "structural_variants/mappability/self_aligned.bam",
+        bam = config["results"] + "structural_variants/delly/mappability/self_aligned.bam",
     params:
         bwa_threads = 42,
         samtools_threads = 8,
@@ -419,15 +350,15 @@ rule align_chopped_ref_fna:
 rule create_mappability_map:
     """Create mappability map for calling CNVs."""
     input:
-        bam = config["results"] + "structural_variants/mappability/self_aligned.bam",
-        bai = config["results"] + "structural_variants/mappability/self_aligned.bam.bai",
+        bam = config["results"] + "structural_variants/delly/mappability/self_aligned.bam",
+        bai = config["results"] + "structural_variants/delly/mappability/self_aligned.bam.bai",
     output:
-        map = config["results"] + "structural_variants/mappability/self_mapped.fa.gz",
+        map = config["results"] + "structural_variants/delly/mappability/self_mapped.fa.gz",
     params:
-        map = config["results"] + "structural_variants/mappability/self_mapped.fa",
+        map = config["results"] + "structural_variants/delly/mappability/self_mapped.fa",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/delly.yaml"
+    conda: "../envs/delly2.yaml"
     # Not sure if --chromosome is actually necessary since input.bam will only be one chromosome anyway.
     shell: """
         dicey mappability2 {input.bam} \
@@ -442,13 +373,13 @@ rule call_CNVs:
     input:
         bam = config["results"] + "alignments/recalibrated/{sample}.bam",
         ref_fasta = config["ref_fasta"],
-        map = config["results"] + "structural_variants/mappability/map.fa.gz",
-        fai = config["results"] + "structural_variants/mappability/map.fa.gz.fai",
+        map = config["results"] + "structural_variants/delly/mappability/map.fa.gz",
+        fai = config["results"] + "structural_variants/delly/mappability/map.fa.gz.fai",
     output:
-        bcf = config["results"] + "structural_variants/CNVs/{sample}.bcf",
+        bcf = config["results"] + "structural_variants/delly/CNVs/{sample}.bcf",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/delly.yaml"
+    conda: "../envs/delly2.yaml"
     shell: """
         delly cnv {input.bam} \
             -g {input.ref_fasta} \
@@ -459,12 +390,12 @@ rule call_CNVs:
 rule merge_CNVs:
     """Merge CNVs."""
     input:
-        bcfs = expand(config["results"] + "structural_variants/CNVs/{sample}.bcf", sample=SAMPLES),
+        bcfs = expand(config["results"] + "structural_variants/delly/CNVs/{sample}.bcf", sample=SAMPLES),
     output:
-        bcf = config["results"] + "structural_variants/CNVs/{dataset}.ungenotyped.bcf",
+        bcf = config["results"] + "structural_variants/delly/CNVs/{dataset}.ungenotyped.bcf",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/delly.yaml"
+    conda: "../envs/delly2.yaml"
     shell: """
         delly merge {input.bcfs} \
             --cnvmode \
@@ -477,18 +408,20 @@ rule merge_CNVs:
 rule genotype_merged_CNVs:
     """Genotype merged BCFs with copy number variants."""
     input:
-        bam = config["results"] + "alignments/recalibrated/{sample}.bam",
-        bcf = config["results"] + "structural_variants/merged/{dataset}.ungenotyped.bcf",
+        # bam = config["results"] + "alignments/recalibrated/{sample}.bam",
+        bams = collect_runs_from_sample,  # From variant_calling.smk
+        bams_idx = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_sample(wildcards))),
+        bcf = config["results"] + "structural_variants/delly/merged/{dataset}.ungenotyped.bcf",
         ref_fasta = config["ref_fasta"],
-        map = config["results"] + "structural_variants/mappability/map.fa.gz",
-        fai = config["results"] + "structural_variants/mappability/map.fa.gz.fai",
+        map = config["results"] + "structural_variants/delly/mappability/map.fa.gz",
+        fai = config["results"] + "structural_variants/delly/mappability/map.fa.gz.fai",
     output:
-        bcf = config["results"] + "structural_variants/CNVs/all_sites/{dataset}.{sample}.genotyped.bcf",
+        bcf = config["results"] + "structural_variants/delly/CNVs/all_sites/{dataset}.{sample}.genotyped.bcf",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/delly.yaml"
+    conda: "../envs/delly2.yaml"
     shell: """
-        delly cnv {input.bam} \
+        delly cnv <(samtools merge {input.bams} -o -) \
             --segmentation \
             -v {input.bcf} \
             -g {input.ref_fasta} \
@@ -500,11 +433,11 @@ rule merge_all_sites_CNVs:
     """Merge samples with sites from all other samples."""
     input:
         bcfs = lambda wildcards: expand(
-            config["results"] + "structural_variants/CNVs/all_sites/{dataset}.{sample}.genotyped.bcf",
+            config["results"] + "structural_variants/delly/CNVs/all_sites/{dataset}.{sample}.genotyped.bcf",
                 dataset=wildcards.dataset,
                 sample=SAMPLES),
     output:
-        bcf = config["results"] + "structural_variants/CNVs/merged/{dataset}.genotyped.bcf",
+        bcf = config["results"] + "structural_variants/delly/CNVs/merged/{dataset}.genotyped.bcf",
     threads: 1
     resources: nodes = 1
     conda: "../envs/bio.yaml"
@@ -517,13 +450,13 @@ rule merge_all_sites_CNVs:
 
 rule filter_CNVs:
     input:
-        bcf = config["results"] + "structural_variants/CNVs/merged/{dataset}.genotyped.bcf",
-        csi = config["results"] + "structural_variants/CNVs/merged/{dataset}.genotyped.bcf.csi",
+        bcf = config["results"] + "structural_variants/delly/CNVs/merged/{dataset}.genotyped.bcf",
+        csi = config["results"] + "structural_variants/delly/CNVs/merged/{dataset}.genotyped.bcf.csi",
     output:
-        bcf = config["results"] + "structural_variants/CNVs/merged/{dataset}.genotyped.filtered.bcf",
+        bcf = config["results"] + "structural_variants/delly/CNVs/merged/{dataset}.genotyped.filtered.bcf",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/delly.yaml"
+    conda: "../envs/delly2.yaml"
     shell: """
         delly classify {input.bcf} \
             --filter germline \
@@ -537,14 +470,14 @@ rule read_depth_profile:
     input:
         bams = collect_runs_from_sample,  # From variant_calling.smk
         bams_idx = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_sample(wildcards))),
-        map = config["results"] + "structural_variants/mappability/self_mapped.fa.gz",
+        map = config["results"] + "structural_variants/delly/mappability/self_mapped.fa.gz",
         ref_fasta = config["ref_fasta"],
         # Indexed ref_fasta
     output:
-        read_depth = config["results"] + "structural_variants/read_depth/{sample}.cov.gz",
+        read_depth = config["results"] + "structural_variants/delly/read_depth/{sample}.cov.gz",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/delly.yaml"
+    conda: "../envs/delly2.yaml"
     shell: """
         delly cnv {input.bams} \
             -a \
@@ -561,7 +494,7 @@ rule VCF_BND_to_BED:
         seq = "LRS|WGS",
         SV_type = "BND",
     input:
-        vcf = "/master/abagwell/variant-analysis/results/rhesus/structural_variants/SVs/per_sample/{seq}{sample_id}.vcf.gz",
+        vcf = "/master/abagwell/variant-analysis/results/rhesus/structural_variants/delly/per_sample/{seq}{sample_id}.vcf.gz",
         #vcf = "/data/RHESUS/FASTQ/WGS/LRS/04.Result_X202SC23050126-Z01-F002.Macaca_mulatta_20231103/04.SV_VarDetect/LRS{sample_id}_r/LRS{sample_id}_r.sv.vcf.gz",
     output:
         bed = "/master/abagwell/workspace/LRS_comparison/{seq}{sample_id}.{SV_type}.bed",
@@ -606,7 +539,7 @@ rule VCF_nonBND_to_BED:
         seq = "LRS|WGS",
         SV_type = "DEL|DUP|INS|INV",
     input:
-        vcf = "/master/abagwell/variant-analysis/results/rhesus/structural_variants/SVs/per_sample/{seq}{sample_id}.vcf.gz",
+        vcf = "/master/abagwell/variant-analysis/results/rhesus/structural_variants/delly/per_sample/{seq}{sample_id}.vcf.gz",
         #vcf = "/data/RHESUS/FASTQ/WGS/LRS/04.Result_X202SC23050126-Z01-F002.Macaca_mulatta_20231103/04.SV_VarDetect/LRS{sample_id}_r/LRS{sample_id}_r.sv.vcf.gz",
     output:
         bed = "/master/abagwell/workspace/LRS_comparison/{seq}{sample_id}.{SV_type}.bed",

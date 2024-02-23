@@ -1,0 +1,10 @@
+# Conda environment for non-GATK tools
+
+name: delly
+channels:
+- bioconda
+
+dependencies:
+- bioconda::delly=1.2.6
+- bioconda::cyvcf2
+- bioconda::samtools
