@@ -1,24 +1,17 @@
 """Contain rules for hard filtering. Runs after variant_calling.smk and as an alternative to variant_recalibration.smk."""
 
+CONFIG = config["hard_filter"]
 
 def filters(mode):
     """Use in rule hard_filter."""
     if mode == "SNP":
-        return """-filter "QUAL < 100.0" --filter-name "QUAL100" \
-                  -filter "QD < 2.0" --filter-name "QD2" \
-                  -filter "SOR > 3.0" --filter-name "SOR3" \
-                  -filter "FS > 5.0" --filter-name "FS5" \
-                  -filter "MQ < 59.0" --filter-name "MQ59" \
-                  -filter "MQRankSum < -12.5" --filter-name "MQRankSum-12.5" \
-                  -filter "ReadPosRankSum < -8.0" --filter-name "ReadPosRankSum-8" """
-                # Previous filters used
-                # """-filter "QUAL < 30.0" --filter-name "QUAL30" \
-                #   -filter "QD < 2.0" --filter-name "QD2" \
-                #   -filter "SOR > 3.0" --filter-name "SOR3" \
-                #   -filter "FS > 60.0" --filter-name "FS60" \
-                #   -filter "MQ < 40.0" --filter-name "MQ40" \
-                #   -filter "MQRankSum < -12.5" --filter-name "MQRankSum-12.5" \
-                #   -filter "ReadPosRankSum < -8.0" --filter-name "ReadPosRankSum-8" """
+        return f"""-filter "QUAL < {CONFIG["QUAL"]}" --filter-name "QUAL{CONFIG["QUAL"]}" \
+                  -filter "QD < {CONFIG["QD"]}" --filter-name "QD{CONFIG["QD"]}" \
+                  -filter "SOR > {CONFIG["SOR"]}" --filter-name "SOR{CONFIG["SOR"]}" \
+                  -filter "FS > {CONFIG["FS"]}" --filter-name "FS{CONFIG["FS"]}" \
+                  -filter "MQ < {CONFIG["MQ"]}" --filter-name "MQ{CONFIG["MQ"]}" \
+                  -filter "MQRankSum < {CONFIG["MQRankSum"]}" --filter-name "MQRankSum{CONFIG["MQRankSum"]}" \
+                  -filter "ReadPosRankSum < {CONFIG["ReadPosRankSum"]}" --filter-name "ReadPosRankSum{CONFIG["ReadPosRankSum"]}" """
     elif mode == "indel":
         return """-filter "QUAL < 30.0" --filter-name "QUAL30" \
                   -filter "QD < 2.0" --filter-name "QD2" \

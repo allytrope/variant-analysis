@@ -5,9 +5,8 @@ READ2=$2
 REF=$3
 OUTPUT=$4
 THREADS=$5
-SAMPLE=$6
+SAMPLE=$(echo $6 | cut -d _ -f 1)  # Take sample from run name
 
-echo "In .sh file";
 ID=$(gunzip -c "$READ1" | head -n 1 | cut -c 2- | awk -v FS=':' '{print "ID:"$1"."$2}');
 echo $ID;
 echo post_id;
