@@ -60,6 +60,7 @@ wildcard_constraints:
 include: "rules/directory_structure.smk"
 include: "rules/indices.smk"
 include: "rules/quality_control.smk"
+include: "rules/align.smk"
 include: "rules/variant_calling.smk"
 #include: "rules/variant_recalibration.smk"
 include: "rules/hard_filter.smk"
@@ -86,6 +87,7 @@ include: "rules/misc.smk"
 #ruleorder: concat_autosomes > bcf_to_vcfgz
 #ruleorder: vep > bcf_to_vcfgz
 #ruleorder: vcfgz_to_bcf > call_SVs
+ruleorder: cut_adapters_with_i5_i7_genozipped > cut_adapters_with_i5_i7
 
 rule all:
     """Generate target files. This rule runs automatically when Snakefile is run.
