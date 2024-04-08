@@ -3,7 +3,7 @@
 ## Variant calling
 
 rule call_variants:
-    """Call variants to make VCF file."""
+    """Call variants from a single chromosome to make VCF file."""
     input:
         ref = config["ref_fasta"],
         fai = config["ref_fasta"] + ".fai",
@@ -15,19 +15,42 @@ rule call_variants:
     params:
         bams = lambda wildcards, input: list(map(lambda bam: "-I " + bam, input.bams)),
     output:
-        vcf = config["results"] + "gvcf/{sample}.g.vcf.gz",
-        tbi = config["results"] + "gvcf/{sample}.g.vcf.gz.tbi",
+        vcf = config["results"] + "gvcf/{chr}/{seq}{indiv_id}{run}.chr{chr}.g.vcf.gz",
+        tbi = config["results"] + "gvcf/{chr}/{seq}{indiv_id}{run}.chr{chr}.g.vcf.gz.tbi",
     conda: "../envs/gatk.yaml"
-    threads: 9  # 4 is default
-    resources: nodes = 9
-    # -I {input.bam} \
+    threads: 2  # 4 is default. Also see https://hpc.nih.gov/training/gatk_tutorial/haplotype-caller.html for recommended threads.
+    resources: nodes = 2
     shell: """
         gatk --java-options '-Xmx16g' HaplotypeCaller \
+            -L {wildcards.chr} \
             -R {input.ref} \
             {params.bams} \
             -O {output.vcf} \
             -ERC GVCF \
             --native-pair-hmm-threads {threads} \
+        """
+
+rule call_variants_merge_chromosomes:
+    """Merge called variants from single chromosomes to make VCF file."""
+    wildcard_constraints:
+        indiv_id = r"[A-Za-z0-9]+",
+        seq = r"WGS|WES|GBS|AMP",
+        run = r"[A-Za-z0-9_-]+",
+    input:
+        vcfs = lambda wildcards: expand(config["results"] + "gvcf/{chr}/{seq}{indiv_id}{run}.chr{chr}.g.vcf.gz", chr=CHROMOSOMES,
+            seq = wildcards.seq,
+            indiv_id = wildcards.indiv_id,
+            run = wildcards.run),
+    output:
+        vcf = config["results"] + "gvcf/{seq}{indiv_id}{run}.g.vcf.gz",
+        #tbi = config["results"] + "gvcf/{seq}{indiv_id}{run}.g.vcf.gz.tbi",
+    conda: "../envs/bio.yaml"
+    threads: 1
+    resources: nodes = 1
+    shell: """
+        bcftools concat {input.vcfs} \
+            -o {output.vcf} \
+            -Oz \
         """
 
 # Consolidation of GVCFs
@@ -49,47 +72,34 @@ rule create_sample_map:
                 sample = gvcf.split("/")[-1].split(".")[0]
                 sample_map.write(f"{sample}\t{gvcf}\n")
 
-rule list_chromosomes:
-    """Find all chromosomes from headers of reference genome.
-    
-     Each line of the output file is just one chromosome's name.
-     The search only keeps numbered chromosomes (not those prefixed with "chr" or any other letters)
-     as well as X, Y, and MT. Unplaced contigs are ignored."""
-    input:
-        ref = config["ref_fasta"],
-    output:
-        config["results"] + "db/chromosomes.list",
-    threads: 1
-    resources: nodes = 1
-    conda: "../envs/bio.yaml"
-    shell: """
-        zcat {input.ref} | grep "^>" | cut -c 2- | cut -d " " -f 1 | grep -x -E "^[0-9]+|X|Y|MT" > {output}
-        """
-
 rule consolidate:
     """Combine the chromosomes of .g.vcf files into GenomicsDB datastore."""
     input:
-        contigs = config["results"] + "db/chromosomes.list",
-        sample_map = config["results"] + "db/{dataset}.sample-map",
+        contigs = config["resources"] + "ref_fna/chromosomes.list",
+        gvcfs = expand("{results}gvcf/{sample}.g.vcf.gz{ext}",
+            ext=["", ".tbi"],
+            results=config["results"],
+            sample=SAMPLES),
+        sample_map = config["results"] + "db/{dataset}.sample-map",  # gVCFs are referenced in this file
     output:
-        config["results"] + "db/created_{dataset}.txt",
+        config["results"] + "db/{dataset}/completed/{contig}.txt",
     params:
-        db = config["results"] + "db/{dataset}",
+        db = config["results"] + "db/{dataset}/{contig}",
         # Higher value requires more memory and number of file descriptor able to be used at the same time.
         # Attempted with 6, but ran out of memory. Once even 4 was too much. Though did work with 4 when I had fewer samples.
         parallel_intervals = 3,  
     threads: 2  # Just for opening multiple .vcf files at once.
     resources: nodes = 2
     conda: "../envs/gatk.yaml"
+    # CONTIGS=$(awk 'BEGIN {{ORS = ","}} {{print $0}}' {input.contigs}); \
     shell: """
-        CONTIGS=$(awk 'BEGIN {{ORS = ","}} {{print $0}}' {input.contigs}); \
         if [ -d {params.db} ]; \
         then WORKSPACE_FLAG="genomicsdb-update-workspace-path"; \
         else WORKSPACE_FLAG="genomicsdb-workspace-path"; \
         fi; \
         gatk --java-options '-Xmx8g' GenomicsDBImport \
             --$WORKSPACE_FLAG {params.db} \
-            --intervals {input.contigs} \
+            --intervals {wildcards.contig} \
             --sample-name-map {input.sample_map} \
             --batch-size 50 \
             --genomicsdb-shared-posixfs-optimizations true \
@@ -105,12 +115,12 @@ rule joint_call_cohort:
         ref = config["ref_fasta"],
         # Note: The actual text file isn't what is required, but the datastore directory.
         # This .txt file is, however, is created only after the datastore has finished being built.
-        db = config["results"] + "db/created_{dataset}.txt",
+        db = config["results"] + "db/{dataset}/completed/{contig}.txt",
     output:
-        vcf = config["results"] + "joint_call/polyallelic/{dataset}.chr{chr}.vcf.gz",
+        vcf = config["results"] + "joint_call/polyallelic/{dataset}.chr{contig}.vcf.gz",
         #tbi = config["results"] + "joint_call/polyallelic/{dataset}.chr{chr}.vcf.gz.tbi",
     params:
-        db = config["results"] + "db/{dataset}",
+        db = config["results"] + "db/{dataset}/{contig}",
     threads: 1
     resources: nodes = 1
     conda: "../envs/gatk.yaml"
@@ -119,7 +129,7 @@ rule joint_call_cohort:
             -R {input.ref} \
             -V gendb://{params.db} \
             -O {output.vcf} \
-            -L {wildcards.chr} \
+            -L {wildcards.contig} \
         """
 
 ## Split SNPs and indels

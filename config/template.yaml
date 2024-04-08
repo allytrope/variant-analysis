@@ -21,8 +21,9 @@ __definitions__:
             #     return f.read().splitlines()
     - |
         def CHROMOSOMES():
-            if Path(this["results"] + "db/chromosomes.list").is_file():
-                with open(this["results"] + "db/chromosomes.list") as f:
+            chromosomes_file = this["resources"] + "ref_fna/chromosomes.list"
+            if Path(chromosomes_file).is_file():
+                with open(chromosomes_file) as f:
                     return f.read().splitlines()
             else:
                 print("No chromosome file yet.")
@@ -36,8 +37,17 @@ resources: ?this["path"] + "resources/" + this["project"]
 results: ?this["path"] + "results/" + this["project"]
 log: ?this["path"] + "log/" + this["project"]
 
+# FASTA reference genome
+ref_fasta: ?this["resources"] + "ref_fna/Macaca_mulatta.Mmul_10.dna.toplevel.fa.gz"  # Taken from ENSEMBL. Uses chromosomes as 1, 2 ... X, Y...
+
 # Directory containing FASTQ files
 reads: ?this["resources"] + "reads/"
+
+# Specify compression type of FASTQs. "type" can be "gz" or "genozip". The other parameters need only be specified if "genozip".
+compression:
+    type: gz
+    ref_fasta: ?this["ref_fasta"]  # Reference genome used to genozip
+    paired: True  # Whether genozip compression was done with `--pair` (meaning each file is "R1+2")
 
 barcodes:
     # Only for GBS. A tab-delimited file with the first column as {organism_id} and the second as the barcode (e.g., AACGTT)
@@ -53,9 +63,6 @@ runs: ?this["resources"] + "samples/runs.list"
 # Tell whether to treat sequences from the same animal, but from different batches, as the same or different "samples"
 # Different seq types, however, will be treated separately regardless
 group_sample_runs_by_batch: False
-
-# FASTA reference genome
-ref_fasta: ?this["resources"] + "ref_fna/Macaca_mulatta.Mmul_10.dna.toplevel.fa.gz"  # Taken from ENSEMBL. Uses chromosomes as 1, 2 ... X, Y...
 
 gtf3: ?this["resources"] + "annotations/Macaca_mulatta.Mmul_10.110.gtf.gz"
 
@@ -80,8 +87,22 @@ filtering:
     max_AF: 0.95
     min_AC: 10
 
+pops:
+    - ?this["resources"] + "samples/pops/RPL.pop"
+    - ?this["resources"] + "samples/pops/non-RPL.pop"
+
+window_sizes:  # (in kbp)
+    - 250
+    - 100
+    - 50
+    - 25
+
 # Files to create. The paths can be found as under "output" in the rules of .smk files.
 # Every output should start with "results" to direct to the correct path.
+# A simple target file:
+# results + "haplotypes/SHAPEIT4/all_animals.SNP.chr17.vcf.gz",
+# Example of a more complex target file:
+# expand(results + "vcf/{sample}.g.vcf.gz", sample=SAMPLES)
 target_files:
 # A simple target file:
 - ?this["results"] + "haplotypes/SHAPEIT4/all_animals.SNP.chr17.vcf.gz"

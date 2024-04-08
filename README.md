@@ -3,7 +3,7 @@
 This project is a snakemake workflow for processing `.fastq.gz` files and downstream analyses. The variant calling is primarily based on the GATK best practices for germline short variant discovery. Later analyses include pairwise relationship estimation and admixture.
 
 **NOTE**
-This project is not meant for general use. Workflow rules are created as I need them for my particular research and rules are not always in a usable state. Feel free to create your own branch of this project for your own research needs, but don't expect everything to work out of the box.
+This project is not meant for general use. Workflow rules are created as I need them for my particular research and rules are not always in a usable state. Feel free to create your own fork of this project for your own research needs, but don't expect everything to work out of the box.
 
 
 # Dependencies

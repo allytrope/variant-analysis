@@ -1,7 +1,8 @@
 """Rules trimming, alignment, and post-alignment processing of BAMs. Subsequent rules of main workflow are found in variant_calling.smk."""
 
-from Bio.Seq import Seq
-import pandas as pd
+#from Bio.Seq import Seq
+#import pandas as pd
+
 
 def collect_runs_from_sample(wildcards):
     """Find runs from same sample.
@@ -27,11 +28,14 @@ rule cut_adapters_with_i5_i7:
     wildcard_constraints:
         seq = "WGS|WES|AMP",
     input:
-        reads = lambda wildcards: expand(config["reads"] + "{batch}/{seq}{sample_run}.{read}.fastq.gz",
-            batch=wildcards.batch,
-            seq=wildcards.seq,
-            sample_run=wildcards.sample_run,
-            read=["R1", "R2"]),
+        # reads = lambda wildcards: expand(config["reads"] + "{batch}/{seq}{sample_run}.{read}.fastq.gz",
+        #     batch=wildcards.batch,
+        #     seq=wildcards.seq,
+        #     sample_run=wildcards.sample_run,
+        #     read=["R1", "R2"]),
+        #fastq = config["reads"] + "{batch}/{seq}{sample_run}.R1+2.fastq.genozip",
+        fastq = config["results"] + "reads/{batch}/{seq}{sample_run}.R1+R2.fastq",
+        ref_genozip = config["compression"]["ref_fasta"],
     output: 
         trimmed = temp(expand(config["results"] + "trimmed/{{batch}}/{{seq}}{{sample_run}}.{read}.fastq.gz",
             read=["R1", "R2"])),
@@ -43,13 +47,14 @@ rule cut_adapters_with_i5_i7:
     threads: 4
     resources: nodes = 4
     conda: "../envs/bio.yaml"
+    # Use this when not using genozipped files: cutadapt {input.reads} \
     shell: """
         # ADAPTERS=$(gunzip -c {input.reads[0]} | head -n 1 | cut -d " " -f 2 | cut -d ":" -f 4);
         # i7=$(echo $ADAPTERS | cut -d "+" -f 1);
         # i5=$(echo $ADAPTERS | cut -d "+" -f 2);
         R1_END_ADAPTER="{params.pre_i7}";  # ${{i7}}{params.post_i7}";
         R2_END_ADAPTER="{params.pre_i5}";  # ${{i5}}{params.post_i5}";
-        cutadapt {input.reads} \
+        cutadapt {input.fastq} \
             -a $R1_END_ADAPTER \
             -A $R2_END_ADAPTER \
             --cores {threads} \
@@ -65,11 +70,14 @@ rule cut_adapters_with_i5_i7_genozipped:
     wildcard_constraints:
         seq = "WGS|WES|AMP",
     input:
-        reads = config["reads"] + "{batch}/{seq}{sample_run}.R1+2.fastq.genozip",
-        genozip_ref = config["compression"]["ref_fasta"],
+        fastq_R1 = config["results"] + "reads/{batch}/{seq}{sample_run}.R1.fastq.gz",
+        fastq_R2 = config["results"] + "reads/{batch}/{seq}{sample_run}.R2.fastq.gz",
+        #genozip_ref = config["compression"]["ref_fasta"],
     output: 
-        trimmed = temp(expand(config["results"] + "trimmed/{{batch}}/{{seq}}{{sample_run}}.{read}.fastq.gz",
-            read=["R1", "R2"])),
+        # trimmed = pipe(expand(config["results"] + "trimmed/{{batch}}/{{seq}}{{sample_run}}.{read}.fastq.gz",
+        #     read=["R1", "R2"])),
+        trimmed_R1 = temp(config["results"] + "trimmed/{batch}/{seq}{sample_run}.R1.fastq.gz"),
+        trimmed_R2 = temp(config["results"] + "trimmed/{batch}/{seq}{sample_run}.R2.fastq.gz"),
     params: 
         pre_i7 = "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC",
         post_i7 = "ATCTCGTATGCCGTCTTCTGCTTG",
@@ -81,12 +89,13 @@ rule cut_adapters_with_i5_i7_genozipped:
     shell: """
         R1_END_ADAPTER="{params.pre_i7}";  # ${{i7}}{params.post_i7}";
         R2_END_ADAPTER="{params.pre_i5}";  # ${{i5}}{params.post_i5}";
-        cutadapt <(genocat {input.reads} --reference {input.genozip_ref} --R1) <(genocat {input.reads} --reference {input.genozip_ref} --R2) \
+        cutadapt {input.fastq_R1} {input.fastq_R2} \
             -a $R1_END_ADAPTER \
             -A $R2_END_ADAPTER \
             --cores {threads} \
-            -o {output.trimmed[0]} \
-            -p {output.trimmed[1]}"""
+            -o {output.trimmed_R1} \
+            -p {output.trimmed_R2} \
+        """
 
 # rule cut_adapters_with_i5_i7_AMP:
 #     """Cut out 3' end adapters using i7 and i5 adapter information.
@@ -184,20 +193,22 @@ rule align:
     Extracts read group information. Then aligns to references genome while adding this read group info.
     Then sorts the output by coordinates."""
     input:
+        fastq_first_line = config["results"] + "reads/{batch}/{sample_run}.first_line.R1+2.fastq",
         ref = config["ref_fasta"],
-        idxs = multiext(config["ref_fasta"], ".amb", ".ann", ".bwt", ".pac", ".sa"),
+        ref_indices = multiext(config["ref_fasta"], ".amb", ".ann", ".bwt", ".pac", ".sa"),
         trimmed = lambda wildcards: expand(config["results"] + "trimmed/{batch}/{sample_run}.{read}.fastq.gz",
             batch=wildcards.batch,
             sample_run=wildcards.sample_run,
-            read=["R1", "R2"]),
+            read=["R1", "R2"]),  # Piped
     output:
-        alignment = temp(config["results"] + "alignments/raw/{batch}/{sample_run}.bam"),
-    threads: 24
-    resources: nodes = 24
+        alignment = config["results"] + "alignments/raw/{batch}/{sample_run}.bam",
+    threads: 20
+    resources: nodes = 20
     conda: "../envs/bio.yaml"
     # First of RG's tags must be SM and last must be PU because of how I have to call the sample names.
     shell: """
-        bash workflow/scripts/align.sh {input.trimmed[0]} {input.trimmed[1]} {input.ref} {output} {threads} {wildcards.sample_run}"""
+        bash workflow/scripts/align.sh {input.trimmed[0]} {input.trimmed[1]} {input.ref} {output} {threads} {wildcards.sample_run} {input.fastq_first_line}
+        """
 
 rule alignment_postprocessing:
     """Fix mate pairs and mark duplicate reads."""

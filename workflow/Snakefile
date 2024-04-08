@@ -28,8 +28,9 @@ else:
 SAMPLES = sorted(list(set([('_').join(run.split('/')[-1].split('_')[0:tmp]) for run in SAMPLE_RUNS])))
 
 # Create list of chromosomes
-if Path(config["results"] + "db/chromosomes.list").is_file():
-    with open(config["results"] + "db/chromosomes.list") as f:
+chromosomes_file = config["resources"] + "ref_fna/chromosomes.list"
+if Path(chromosomes_file).is_file():
+    with open(chromosomes_file) as f:
         CHROMOSOMES = f.read().splitlines()
     print(CHROMOSOMES)
 else:
@@ -44,18 +45,19 @@ else:
 shell.prefix("source ~/.bash_profile; ")
 
 wildcard_constraints:
-    dataset ="\w+",
+    dataset =r"\w+",
     filter_method = "hard_filtered|VQSR",
     #organism_id = "\w+",
     mode = "SNP|indel",
-    name = "[A-Za-z0-9_\.-]+",
-    prefix = "[A-Za-z0-9_/]+",
-    path = "[A-Za-z0-9_/\.-]+",
-    sample = "\w+",
-    sample1 = "\w+",
-    sample2 = "\w+",
+    name = r"[A-Za-z0-9_\.-]+",
+    prefix = r"[A-Za-z0-9_/]+",
+    path = r"[A-Za-z0-9_/\.-]+",
+    #run = r"[A-Za-z0-9_-]+",
+    sample = r"\w+",
+    sample1 = r"\w+",
+    sample2 = r"\w+",
     seq = "WGS|WES|GBS|AMP|merged",
-    workspace="[A-Za-z0-9_\.]+",
+    workspace=r"[A-Za-z0-9_\.]+",
 
 include: "rules/directory_structure.smk"
 include: "rules/indices.smk"
@@ -96,4 +98,5 @@ rule all:
     input:
         # Input for generating README.md file
         #config["results"] + "README.md",
+        config["resources"] + "ref_fna/chromosomes.list",
         config["target_files"],
