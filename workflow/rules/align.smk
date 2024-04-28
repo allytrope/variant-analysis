@@ -301,7 +301,7 @@ rule apply_base_recalibration:
 rule merge_bams:
     """Merge BAMs for same sample.
     This rule is avoided where possible with process substitution,
-    but for tools that require a seekable BAM."""
+    but is here for tools that require a seekable BAM."""
     input:
         bams = collect_runs_from_sample,
         bams_idx = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_sample(wildcards))),
