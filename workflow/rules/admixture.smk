@@ -26,27 +26,30 @@ rule liftover_recomb_rates:
         """
 
 
-
 rule RFMix:
     """Admixture calculated using RFMix. Expects phased data."""
     input:
         # BCFs are recommended
-        query_VCF = config["results"] + "genotypes/pass/{dataset}.{subset}.SNP.chr{chr}.bcf",
-        query_VCF_idx = config["results"] + "genotypes/pass/{dataset}.{subset}.SNP.chr{chr}.bcf.csi",
-        ref_VCF = config["resources"] + "ref_vcf/12_Indian_12_Chinese.phased.autosomal.bcf",
-        ref_VCF_idx = config["resources"] + "ref_vcf/12_Indian_12_Chinese.phased.autosomal.bcf.csi",
-        sample_map = config["resources"] + "ref_vcf/sample_ancestry.tsv",
+        # query_VCF = config["results"] + "genotypes/pass/{dataset}.{subset}.SNP.chr{chr}.bcf",
+        # query_VCF_idx = config["results"] + "genotypes/pass/{dataset}.{subset}.SNP.chr{chr}.bcf.csi",
+        query_VCF = config["results"] + "haplotypes/SHAPEIT5/{dataset}.{subset}.SNP.chr{chr}.bcf",
+        query_VCF_idx = config["results"] + "haplotypes/SHAPEIT5/{dataset}.{subset}.SNP.chr{chr}.bcf.csi",
+        ref_VCF = config["resources"] + "ref_vcf/Indian-Chinese.F_MISSING_gt_0.0.all2_subset.bcf",
+        ref_VCF_idx = config["resources"] + "ref_vcf/Indian-Chinese.F_MISSING_gt_0.0.all2_subset.bcf.csi",
+        #ref_VCF = config["resources"] + "ref_vcf/12_Indian_12_Chinese.phased.autosomal.bcf",
+        #ref_VCF_idx = config["resources"] + "ref_vcf/12_Indian_12_Chinese.phased.autosomal.bcf.csi",
+        sample_map = config["resources"] + "ref_vcf/Indian-Chinese_ancestry.tsv",
         genetic_map = config["resources"] + "genetic_map/autosomal.cM.genetic_map",
     params:
-        output_base = config["results"] + "admixture/{dataset}.{subset}.RFMix.chr{chr}",
+        output_base = config["results"] + "admixture/RFMix/{dataset}.{subset}.RFMix.chr{chr}",
     output:
         # msp = lambda wildcards, params: params.output_base + "msp.tsv",
         # fb = lambda wildcards, params: params.output_base + "fb.tsv",
-        msp = config["results"] + "admixture/{dataset}.{subset}.RFMix.chr{chr}.msp.tsv",
-        fb = config["results"] + "admixture/{dataset}.{subset}.RFMix.chr{chr}.fb.tsv",
-        Q = config["results"] + "admixture/{dataset}.{subset}.RFMix.chr{chr}.rfmix.Q",
-        sis = config["results"] + "admixture/{dataset}.{subset}.RFMix.chr{chr}.sis.tsv",
-    log: config["results"] + "admixture/{dataset}.{subset}.RFMix.chr{chr}.log",
+        msp = config["results"] + "admixture/RFMix/{dataset}.{subset}.RFMix.chr{chr}.msp.tsv",
+        fb = config["results"] + "admixture/RFMix/{dataset}.{subset}.RFMix.chr{chr}.fb.tsv",
+        Q = config["results"] + "admixture/RFMix/{dataset}.{subset}.RFMix.chr{chr}.rfmix.Q",
+        sis = config["results"] + "admixture/RFMix/{dataset}.{subset}.RFMix.chr{chr}.sis.tsv",
+    log: config["results"] + "admixture/RFMix/{dataset}.{subset}.RFMix.chr{chr}.log",
     threads: 1
     resources: nodes = 1
     conda: "../envs/admixture.yaml"
@@ -170,17 +173,27 @@ rule unsupervised_ADMIXTURE:
         bim = config["results"] + "genotypes/pruned/plink/{dataset}.{subset}.{mode}.autosomal.bim",
         fam = config["results"] + "genotypes/pruned/plink/{dataset}.{subset}.{mode}.autosomal.fam",
     output:
+        # q = config["results"] + "genotypes/pruned/plink/{dataset}.{subset}.{mode}.autosomal.{clusters}.Q",
+        # p = config["results"] + "genotypes/pruned/plink/{dataset}.{subset}.{mode}.autosomal.{clusters}.P",
+        # log = config["results"] + "genotypes/pruned/plink/{dataset}.{subset}.{mode}.autosomal.{clusters}.log",
         q = config["results"] + "admixture/ADMIXTURE/unsupervised/{dataset}.{subset}.{mode}.autosomal.{clusters}.Q",
         p = config["results"] + "admixture/ADMIXTURE/unsupervised/{dataset}.{subset}.{mode}.autosomal.{clusters}.P",
-        log = config["results"] + "admixture/ADMIXTURE/unsupervised/{dataset}.{subset}.{mode}.autosomal.{clusters}.log",
+    log: config["results"] + "admixture/ADMIXTURE/unsupervised/{dataset}.{subset}.{mode}.autosomal.{clusters}.log",
+    # params:
+    #     #prefix = lambda wildcards, input: ".".join(input.bed.split(".")[0:-1])
+    #     path = config["results"] + "genotypes/pruned/plink",
+    #     prefix = "{dataset}.{subset}.{mode}.autosomal",
     threads: 24
     conda: "../envs/admixture.yaml"
     # --cv | tee {output.out}; \
+    # mv {params.prefix}.{wildcards.clusters}.Q {params.path}; \
+    # mv {params.prefix}.{wildcards.clusters}.P {params.path}; \
+    # mv {params.prefix}.{wildcards.clusters}.log {params.path}; \
     shell: """
         admixture {input.bed} {wildcards.clusters} \
             -j{threads} \
             -s 899 \
-            --cv > {output.log}; \
+            --cv > {log}; \
         mv {wildcards.dataset}.{wildcards.subset}.{wildcards.mode}.autosomal.{wildcards.clusters}.Q {output.q}; \
         mv {wildcards.dataset}.{wildcards.subset}.{wildcards.mode}.autosomal.{wildcards.clusters}.P {output.p}; \
         """
@@ -312,6 +325,57 @@ rule supervised_ADMIXTURE:
         mv {wildcards.dataset}.{wildcards.subset}.{wildcards.mode}.autosomal.{wildcards.clusters}.P {output.p}; \
         """
 
+# Projection ADMIXTURE (utilizes unsupervised ADMIXTURE as well)
+
+rule subset_for_projection_ADMIXTURE:
+    """Subset the VCF to contain only variants in the .P from the original unsupervised ADMIXTURE.
+    In this case, the variants are the exact same across both since one is a subset of the other,
+    as is required by this analysis."""
+    input:
+        ref_bcf = config["results"] + "genotypes/pruned/U42_WES.founders2.SNP.chr{chr}.bcf",
+        ref_csi = config["results"] + "genotypes/pruned/U42_WES.founders2.SNP.chr{chr}.bcf.csi",
+        query_bcf = config["results"] + "genotypes/pass/U42_WES.all2.SNP.chr{chr}.bcf",
+        query_csi = config["results"] + "genotypes/pass/U42_WES.all2.SNP.chr{chr}.bcf.csi",
+    output:
+        bcf = config["results"] + "genotypes/subset/U42_WES.all2_founders2_pruned_subset.SNP.chr{chr}.bcf",
+    shell: """
+        bcftools view {input.query_bcf} \
+            -T <(bcftools view {input.ref_bcf} -Ov) \
+            -Ob \
+            -o {output.bcf}
+        """
+
+rule copy_P_file:
+    """Copy `.P` to be used as a projection analysis in ADMIXTURE."""
+    input:
+        p = config["results"] + "admixture/ADMIXTURE/unsupervised/U42_WES.founders2.SNP.autosomal.{clusters}.P",
+    output:
+        p = config["results"] + "genotypes/subset/plink/U42_WES.all2_founders2_pruned_subset.SNP.autosomal.{clusters}.P.in",
+    shell: """
+        cp {input.p} {output.p} \
+        """
+
+rule projection_ADMIXTURE:
+    """Use the allele frequencies from an unsupervised ADMIXTURE to then apply other samples into that space.
+    The unsupervised ADMIXTURE should use samples that would otherwise be reference sample in a supervised run."""
+    # Note: The `.P` file must be in the same directory as the PLINK input files
+    input:
+        bed = config["results"] + "genotypes/subset/plink/{dataset}.{subset}.SNP.autosomal.bed",
+        bim = config["results"] + "genotypes/subset/plink/{dataset}.{subset}.SNP.autosomal.bim",
+        fam = config["results"] + "genotypes/subset/plink/{dataset}.{subset}.SNP.autosomal.fam",
+        # Need to manually create this `.P` file from unsupervised output, changing the prefix to match the above
+        p = config["results"] + "genotypes/subset/plink/{dataset}.{subset}.SNP.autosomal.{clusters}.P.in",
+        #p = config["results"] + "admixture/ADMIXTURE/unsupervised/{dataset}.{subset}.{mode}.autosomal.{clusters}.P",
+    output:
+        q = config["results"] + "admixture/ADMIXTURE/projection/{dataset}.{subset}.{mode}.autosomal.{clusters}.Q",
+        p = config["results"] + "admixture/ADMIXTURE/projection/{dataset}.{subset}.{mode}.autosomal.{clusters}.P",
+    log: config["results"] + "admixture/ADMIXTURE/projection/{dataset}.{subset}.{mode}.autosomal.{clusters}.log",
+    threads: 16
+    conda: "../envs/admixture.yaml"
+    shell: """
+        admixture -P {input.bed} {wildcards.clusters} \
+            > {log}; \
+        """
 
 # rule create_unsupervised_ancestry_tsv:
 #     """Remove added knowns from .Q and add sample IDs. This makes a more human-readable version of .Q."""
