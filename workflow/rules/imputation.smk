@@ -127,28 +127,76 @@ rule add_annotations:
             -Oz \
         """
 
-rule shapeit5_pedigree:
-    """Generate pedigree file for SHAPEIT5. Three tab-delimited columns.
-    Only includes duos and trios. And fills unknown parent with NA."""
+# rule shapeit5_basic_inputation:
+#     """Impute without reference VCF or pedigree."""
+#     input:
+#         #bcf = config["results"] + "genotypes/pass/{dataset}.{subset}.{mode}.chr{chr}.bcf",
+#         #bcf_csi = config["results"] + "genotypes/pass/{dataset}.{subset}.{mode}.chr{chr}.bcf.csi",
+#         bcf = "/master/abagwell/variant-analysis/resources/rhesus/ref_vcf/Indian-Chinese.vcf.gz",
+#         bcf_csi = "/master/abagwell/variant-analysis/resources/rhesus/ref_vcf/Indian-Chinese.vcf.gz.tbi",
+#     output:
+#         #phased = config["results"] + "haplotypes/SHAPEIT5/{dataset}.{subset}.{mode}.chr{chr}.bcf",
+#         phased = "/master/abagwell/variant-analysis/resources/rhesus/ref_vcf/Indian-Chinese.vcf.gz.tbi",
+#     log:
+#         config["results"] + "haplotypes/SHAPEIT5/log/{dataset}.{subset}.{mode}.chr{chr}.log",
+#     threads: 8
+#     resources: nodes = 8
+#     conda: "../envs/shapeit5.yaml"
+#     #--pedigree {input.fam} \
+#     #--reference {input.ref} \
+#     shell: """
+#         SHAPEIT5_phase_common \
+#             --input {input.bcf} \
+#             --output {output.phased} \
+#             --log {log} \
+#             --thread {threads} \
+#             --region {wildcards.chr} \
+#         """
+
+
+
+rule shapeit5_imputation_no_ref:
+    """Haplotype estimation and imputation using pedigree."""
     input:
-        tsv = config["results"] + "haplotypes/pedigree/{dataset}.all_with_seq.tsv",
+        # vcf = config["results"] + "genotypes/pass/WES/{dataset}.{mode}.chr{chr}.vcf.gz",
+        # tbi = config["results"] + "genotypes/pass/WES/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
+        bcf = config["results"] + "genotypes/pass/{dataset}.{subset}.{mode}.chr{chr}.bcf",
+        bcf_csi = config["results"] + "genotypes/pass/{dataset}.{subset}.{mode}.chr{chr}.bcf.csi",
+        #fam = config["results"] + "haplotypes/pedigree/{dataset}.duos_and_trios.fam",
+        fam = config["results"] + "pedigree/all_individuals.fam"
+        #ref = config["results"] + "haplotypes/SHAPEIT5_WGS/{dataset}.{mode}.chr{chr}.bcf",
+        #ref_csi = config["results"] + "haplotypes/SHAPEIT5_WGS/{dataset}.{mode}.chr{chr}.bcf.csi",
+        #map = config["resources"] + "genetic_map/chr{chr}.cM.genetic_map",
     output:
-        fam = config["results"] + "haplotypes/pedigree/{dataset}.duos_and_trios.fam",
-    threads: 1
-    resources: nodes = 1
+        phased = config["results"] + "haplotypes/SHAPEIT5/{dataset}.{subset}.{mode}.chr{chr}.bcf",
+    log:
+        config["results"] + "haplotypes/SHAPEIT5/log/{dataset}.{subset}.{mode}.chr{chr}.log",
+    threads: 8
+    resources: nodes = 8
     conda: "../envs/shapeit5.yaml"
+    #--pedigree {input.fam} \
+    #--reference {input.ref} \
     shell: """
-        sed 's/\\t\\t/\\tNA\\t/g;s/\\t$/\\tNA/g' {input.tsv} \
-        | grep -v NA$'\\t'NA \
-        > {output.fam} \
+        SHAPEIT5_phase_common \
+            --input {input.bcf} \
+            --region {wildcards.chr} \
+            --output {output.phased} \
+            --log {log} \
+            --thread {threads} \
+            --pedigree {input.fam} \
         """
+
+
+
 
 rule shapeit5_imputation_ref:
     """Haplotype estimation and imputation of reference VCF, that is to say, WGS samples."""
     input:
-        vcf = config["results"] + "genotypes/pass/WGS/{dataset}.{mode}.chr{chr}.vcf.gz",
-        tbi = config["results"] + "genotypes/pass/WGS/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
-        fam = config["results"] + "haplotypes/pedigree/{dataset}.duos_and_trios.fam",
+        # vcf = config["results"] + "genotypes/pass/WGS/{dataset}.{mode}.chr{chr}.vcf.gz",
+        # tbi = config["results"] + "genotypes/pass/WGS/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
+        bcf = config["results"] + "genotypes/pass/WGS/{dataset}.{mode}.chr{chr}.bcf",
+        csi = config["results"] + "genotypes/pass/WGS/{dataset}.{mode}.chr{chr}.bcf.csi",
+        #fam = config["results"] + "haplotypes/pedigree/{dataset}.duos_and_trios.fam",
         #map = config["resources"] + "genetic_map/chr{chr}.cM.genetic_map",
     output:
         phased = config["results"] + "haplotypes/SHAPEIT5_WGS/{dataset}.{mode}.chr{chr}.bcf",
@@ -157,10 +205,10 @@ rule shapeit5_imputation_ref:
     threads: 8
     resources: nodes = 8
     conda: "../envs/shapeit5.yaml"
+    #--pedigree {input.fam} \
     shell: """
         SHAPEIT5_phase_common \
-            --input {input.vcf} \
-            --pedigree {input.fam} \
+            --input {input.bcf} \
             --region {wildcards.chr} \
             --output {output.phased} \
             --log {log} \
@@ -171,10 +219,13 @@ rule shapeit5_imputation_ref:
 rule shapeit5_imputation:
     """Haplotype estimation and imputation of WES samples using the WGS imputation as the reference VCF."""
     input:
-        vcf = config["results"] + "genotypes/pass/WES/{dataset}.{mode}.chr{chr}.vcf.gz",
-        tbi = config["results"] + "genotypes/pass/WES/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
-        fam = config["results"] + "haplotypes/pedigree/{dataset}.duos_and_trios.fam",
+        # vcf = config["results"] + "genotypes/pass/WES/{dataset}.{mode}.chr{chr}.vcf.gz",
+        # tbi = config["results"] + "genotypes/pass/WES/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
+        bcf = config["results"] + "genotypes/pass/WES/{dataset}.{mode}.chr{chr}.bcf",
+        bcf_csi = config["results"] + "genotypes/pass/WES/{dataset}.{mode}.chr{chr}.bcf.csi",
+        #fam = config["results"] + "haplotypes/pedigree/{dataset}.duos_and_trios.fam",
         ref = config["results"] + "haplotypes/SHAPEIT5_WGS/{dataset}.{mode}.chr{chr}.bcf",
+        ref_csi = config["results"] + "haplotypes/SHAPEIT5_WGS/{dataset}.{mode}.chr{chr}.bcf.csi",
         #map = config["resources"] + "genetic_map/chr{chr}.cM.genetic_map",
     output:
         phased = config["results"] + "haplotypes/SHAPEIT5_WES/{dataset}.{mode}.chr{chr}.bcf",
@@ -183,10 +234,10 @@ rule shapeit5_imputation:
     threads: 8
     resources: nodes = 8
     conda: "../envs/shapeit5.yaml"
+    #--pedigree {input.fam} \
     shell: """
         SHAPEIT5_phase_common \
-            --input {input.vcf} \
-            --pedigree {input.fam} \
+            --input {input.bcf} \
             --reference {input.ref} \
             --region {wildcards.chr} \
             --output {output.phased} \
@@ -194,6 +245,38 @@ rule shapeit5_imputation:
             --thread {threads} \
         """
 #            --map {input.map} \
+
+rule subset_WGS_to_exome:
+    """Subset WGS to WES loci."""
+    input:
+        bcf_WES = config["results"] + "haplotypes/SHAPEIT5_WES/{dataset}.{mode}.chr{chr}.bcf",
+        bcf_WGS = config["results"] + "haplotypes/SHAPEIT5_WGS/{dataset}.{mode}.chr{chr}.bcf",
+    params:
+        dir = config["results"] + "haplotypes/SHAPEIT5_merged/isec/{dataset}_chr{chr}_{mode}",
+    output:
+        bcf = config["results"] + "haplotypes/SHAPEIT5_merged/isec/{dataset}_chr{chr}_{mode}/0003.bcf",
+    conda: "../envs/bio.yaml"
+    shell: """
+        bcftools isec {input.bcf_WES} {input.bcf_WGS} \
+            -Ob \
+            -p {params.dir} \
+        """
+
+rule merge_imputed:
+    """Merge WES and WGS imputed BCFs, but only on WES regions."""
+    input:
+        bcf_WES = config["results"] + "haplotypes/SHAPEIT5_WES/{dataset}.{mode}.chr{chr}.bcf",
+        bcf_WGS_exome = config["results"] + "haplotypes/SHAPEIT5_merged/isec/{dataset}_chr{chr}_{mode}/0003.bcf",
+    output:
+        bcf = config["results"] + "haplotypes/SHAPEIT5_merged/{dataset}.{mode}.chr{chr}.bcf",
+    conda: "../envs/bio.yaml"
+    shell: """
+        bcftools merge {input.bcf_WES} {input.bcf_WGS_exome} \
+            -Ob \
+            -o {output.bcf} \
+        """
+
+
 
 ## Using Beagle
 

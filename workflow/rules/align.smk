@@ -1,24 +1,23 @@
 """Rules trimming, alignment, and post-alignment processing of BAMs. Subsequent rules of main workflow are found in variant_calling.smk."""
 
-#from Bio.Seq import Seq
-#import pandas as pd
-
-
-def collect_runs_from_sample(wildcards):
-    """Find runs from same sample.
-    Can take sample name as wildcards.sample or as wildcards.seq + wildcards.iniv.id."""
-    try:
-        sample = wildcards.sample
-    except AttributeError:
-        sample = wildcards.seq + wildcards.indiv_id
-    sample_runs = []
-    for run in SAMPLE_RUNS:
-        # if wildcards.sample == run.split("_")[0]:
-        if sample in run:
-            sample_runs.append(config["results"] + "alignments/recalibrated/" + run + ".bam")
-    return sample_runs
-
 ## Trimming
+# rule trim_fastp:
+#     """Trim using fastp."""
+#     output:
+#         html = config["results"] + "trimmed/html/{batch}/{seq}{sample_run}.html",
+#         json = config["results"] + "trimmed/json/{batch}/{seq}{sample_run}.json",
+#     shell: """
+#         fastp \
+#             --html {output.html} \
+#             --json {output.json} \
+#             --report_title {wildcards.batch}/{wildcards.seq}{wildcards.sample_run} \
+#             --stdin \
+#             --stdout \
+#             --interleaved_in \
+#             --detect_adapter_for_pe \
+#             --correction \
+#         """
+
 rule cut_adapters_with_i5_i7:
     """Cut out 3' end adapters using i7 and i5 adapter information.
     
@@ -28,13 +27,13 @@ rule cut_adapters_with_i5_i7:
     wildcard_constraints:
         seq = "WGS|WES|AMP",
     input:
-        # reads = lambda wildcards: expand(config["reads"] + "{batch}/{seq}{sample_run}.{read}.fastq.gz",
-        #     batch=wildcards.batch,
-        #     seq=wildcards.seq,
-        #     sample_run=wildcards.sample_run,
-        #     read=["R1", "R2"]),
+        reads = lambda wildcards: expand(config["reads"] + "{batch}/{seq}{sample_run}.{read}.fastq.gz",
+            batch=wildcards.batch,
+            seq=wildcards.seq,
+            sample_run=wildcards.sample_run,
+            read=["R1", "R2"]),
         #fastq = config["reads"] + "{batch}/{seq}{sample_run}.R1+2.fastq.genozip",
-        fastq = config["results"] + "reads/{batch}/{seq}{sample_run}.R1+R2.fastq",
+        #fastq = config["results"] + "reads/{batch}/{seq}{sample_run}.R1+R2.fastq",
         ref_genozip = config["compression"]["ref_fasta"],
     output: 
         trimmed = temp(expand(config["results"] + "trimmed/{{batch}}/{{seq}}{{sample_run}}.{read}.fastq.gz",
@@ -47,14 +46,14 @@ rule cut_adapters_with_i5_i7:
     threads: 4
     resources: nodes = 4
     conda: "../envs/bio.yaml"
-    # Use this when not using genozipped files: cutadapt {input.reads} \
+    # Use this when not using genozipped files: cutadapt {input.reads} \  Other: {input.fastq}?
     shell: """
         # ADAPTERS=$(gunzip -c {input.reads[0]} | head -n 1 | cut -d " " -f 2 | cut -d ":" -f 4);
         # i7=$(echo $ADAPTERS | cut -d "+" -f 1);
         # i5=$(echo $ADAPTERS | cut -d "+" -f 2);
         R1_END_ADAPTER="{params.pre_i7}";  # ${{i7}}{params.post_i7}";
         R2_END_ADAPTER="{params.pre_i5}";  # ${{i5}}{params.post_i5}";
-        cutadapt {input.fastq} \
+        cutadapt {input.reads} \
             -a $R1_END_ADAPTER \
             -A $R2_END_ADAPTER \
             --cores {threads} \
@@ -193,7 +192,7 @@ rule align:
     Extracts read group information. Then aligns to references genome while adding this read group info.
     Then sorts the output by coordinates."""
     input:
-        fastq_first_line = config["results"] + "reads/{batch}/{sample_run}.first_line.R1+2.fastq",
+        #fastq_first_line = config["results"] + "reads/{batch}/{sample_run}.first_line.R1+2.fastq",
         ref = config["ref_fasta"],
         ref_indices = multiext(config["ref_fasta"], ".amb", ".ann", ".bwt", ".pac", ".sa"),
         trimmed = lambda wildcards: expand(config["results"] + "trimmed/{batch}/{sample_run}.{read}.fastq.gz",
@@ -202,12 +201,25 @@ rule align:
             read=["R1", "R2"]),  # Piped
     output:
         alignment = config["results"] + "alignments/raw/{batch}/{sample_run}.bam",
+    log:
+        config["results"] + "alignments/raw/{batch}/{sample_run}.log",
     threads: 20
     resources: nodes = 20
     conda: "../envs/bio.yaml"
     # First of RG's tags must be SM and last must be PU because of how I have to call the sample names.
+    # shell: """
+    #     bash workflow/scripts/align.sh {input.trimmed[0]} {input.trimmed[1]} {input.ref} {output} {threads} {wildcards.sample_run} {input.fastq_first_line}
+    #     """
     shell: """
-        bash workflow/scripts/align.sh {input.trimmed[0]} {input.trimmed[1]} {input.ref} {output} {threads} {wildcards.sample_run} {input.fastq_first_line}
+        SAMPLE=$(echo {wildcards.sample_run} | cut -d _ -f 1 | cut -c 4-); \
+        LIBRARY=$(echo {wildcards.sample_run} | cut -d _ -f 2); \
+
+        bwa mem {input.ref} {input.trimmed[0]} {input.trimmed[1]} \
+            -t {threads} \
+            -R '@RG\\tSM:'$SAMPLE'\\tLB:'$LIBRARY'\\tID:'$SAMPLE'\\tPL:ILLUMINA' \
+            2> {log} \
+        | samtools view \
+            -o {output.alignment} \
         """
 
 rule alignment_postprocessing:
@@ -307,7 +319,7 @@ rule merge_bams:
         bams_idx = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_sample(wildcards))),
     output:
         #bam = temp(config["results"] + "alignments/merged/{batch}/{seq}{sample_run}.bam"),
-        bam = config["results"] + "alignments/merged/{sample}.bam",  # Just for `rhesus` project until I update it
+        bam = config["results"] + "alignments/merged/{batch}/{seq}{sample_run}.bam",  # Just for `rhesus` project until I update it
     conda: "../envs/bio.yaml"
     threads: 1
     resources: nodes = 1
