@@ -4,10 +4,11 @@ The corresponding config file for the project can be written under `configfile`.
 
 import sys
 sys.path.insert(0, "./config")
-
 from collections import defaultdict
 import os
 from pathlib import Path
+
+import polars as pl
 
 # Create defaultdict of runs for samples.
 # RUNS = defaultdict(set)
@@ -16,62 +17,135 @@ from pathlib import Path
 #     RUNS[split[0]].add(split[1])
 
 
-# Create list of runs
-with open(config["runs"]) as f:
-    SAMPLE_RUNS = f.read().splitlines()
+# Read reads table
+df = pl.read_csv(config["runs"], comment_prefix='#', separator='\t', schema_overrides={'indiv': pl.String})
 
-#Create list of samples
-if config["group_sample_runs_by_batch"]:
-    tmp = 2
+def tokenize_sample(fmt):
+    """Pull out all values in braces.
+    For example, the string `{batch}/{seq}{indiv}_{tissue}` becomes `['batch', 'seq', 'indiv', 'tissue']`.
+    """
+
+def wildcardize(fmt):
+    """Prepend each variable with 'wildcard.'. This is useful for embedding in shell.
+    For sample, '{seq}{indiv}_{library}' becomes '{wildcards.seq}{wildcards.indiv}_{wildcards.library}'.
+    """
+
+def collect_samples(fmt, col=None, val=None):
+    """Collect into a list values such as sample names and run ids.
+    Relies on global `df` variable, which is a polars table
+    
+    Parameters
+    ----------
+    fmt : string
+        Format in which to output. For example,
+        using all fields from table: "{batch}/{seq}{indiv}_{library}_{flowcell_lane}"
+    col : string, optional
+        Name of a column in the table to filter on
+    val : string, optional
+        String to filter on
+    """
+    
+    # Parse fmt. This parse words inside braces (including the braces themselves) and strings between reversed braces (the that between "}" and "{"
+    tokens = re.findall(r"\{\w+\}|(?<=})[^({|})]+(?={)", fmt)
+
+    polarized_tokens = []
+    # Mark tokens as variables or literals
+    for token in tokens:
+        if "{" in token:
+            token = token.replace("{", "").replace("}", "")
+            polarized_tokens.append(pl.col(token))
+        else:
+            polarized_tokens.append(pl.lit(token))
+    
+    if col == None:
+        concatenated_df = df.with_columns(
+            concatenated = pl.concat_str(polarized_tokens)
+        )
+    else:
+        # Filter and modify dataframe (uses global df)
+        concatenated_df = df.filter(
+            pl.col(col) == val
+        ).with_columns(
+            concatenated = pl.concat_str(polarized_tokens)
+        )
+
+    # Keep only unique values and return list
+    return list(concatenated_df["concatenated"].unique())
+
+
+# #Create list of samples
+# if config["group_sample_runs_by_batch"]:
+#     tmp = 2
+# else:
+#     tmp = 1
+# SAMPLES = sorted(list(set([('_').join(run.split('/')[-1].split('_')[0:tmp]) for run in SAMPLE_RUNS])))
+
+
+# Create list of chromosomes. May require running Snakemake once to create these files and then again to use them in rules.
+contigs_file = config["resources"] + "ref_fna/contigs.list"
+if Path(contigs_file).is_file():
+    with open(contigs_file) as f:
+        CONTIGS = f.read().splitlines()
 else:
-    tmp = 1
-SAMPLES = sorted(list(set([('_').join(run.split('/')[-1].split('_')[0:tmp]) for run in SAMPLE_RUNS])))
+    CONTIGS = []
 
-# Create list of chromosomes
 chromosomes_file = config["resources"] + "ref_fna/chromosomes.list"
 if Path(chromosomes_file).is_file():
     with open(chromosomes_file) as f:
         CHROMOSOMES = f.read().splitlines()
-    print(CHROMOSOMES)
 else:
-    print("No chromosome file yet.")
     CHROMOSOMES = []
-# CHROMOSOMES.remove("X")
-# CHROMOSOMES.remove("Y")
-# CHROMOSOMES.remove("MT")
 
-# For command that use bash specific syntax, these have to activated. Although they may only work with the bio environment.
+autosomes_file = config["resources"] + "ref_fna/autosomes.list"
+if Path(autosomes_file).is_file():
+    with open(autosomes_file) as f:
+        AUTOSOMES = f.read().splitlines()
+else:
+    AUTOSOMES = []
+
+# For commands that use bash specific syntax, these have to be activated. Although they may only work with the bio environment.
 #shell.executable("/bin/bash")
-shell.prefix("source ~/.bash_profile; ")
+#shell.prefix("source ~/.bash_profile; ")
 
 wildcard_constraints:
-    dataset =r"\w+",
+    dataset = r"\w+",
     filter_method = "hard_filtered|VQSR",
-    #organism_id = "\w+",
-    mode = "SNP|indel",
+    indiv = r"[A-Za-z0-9\-]+",
+    mode = "SNP|indel|both",
     name = r"[A-Za-z0-9_\.-]+",
-    prefix = r"[A-Za-z0-9_/]+",
+    prefix = r"[A-Za-z0-9_/-]+",
     path = r"[A-Za-z0-9_/\.-]+",
     #run = r"[A-Za-z0-9_-]+",
-    sample = r"\w+",
+    #sample = r"\w+",
     sample1 = r"\w+",
     sample2 = r"\w+",
-    seq = "WGS|WES|GBS|AMP|merged",
+    seq = "WGS|lpWGS|WES|GBS|AMP|merged",
+    #library = r"[A-Za-z0-9]+_[A-Za-z0-9]+",
+    library = r"[A-Za-z0-9-]+",
     workspace=r"[A-Za-z0-9_\.]+",
 
-include: "rules/directory_structure.smk"
+#include: "rules/directory_structure.smk"
+include: "rules/sra.smk"
+#include: "rules/functions.smk"
 include: "rules/indices.smk"
+include: "rules/compression.smk"
 include: "rules/quality_control.smk"
 include: "rules/align.smk"
 include: "rules/variant_calling.smk"
 #include: "rules/variant_recalibration.smk"
 include: "rules/hard_filter.smk"
+include: "rules/pedigree.smk"
+#include: "rules/sra.smk"
+#include: "rules/octopus.smk"
 include: "rules/phasing.smk"
-include: "rules/subset_samples.smk"
-include: "rules/imputation.smk"
+#include: "rules/subset_samples.smk"
+#include: "rules/imputation.smk"
 include: "rules/annotation.smk"
+#include: "rules/gwas.smk"
 #include: "rules/gene_counts.smk"
-#include: "rules/kinship.smk"
+include: "rules/inbreeding.smk"
+include: "rules/kinship.smk"
+#include: "rules/laser.smk"
 #include: "rules/relations.smk"
 include: "rules/stats/TajimaD.smk"
 include: "rules/stats/rare_variant_tests.smk"
@@ -80,24 +154,99 @@ include: "rules/fst.smk"
 include: "rules/pca.smk"
 include: "rules/homozygosity.smk"
 include: "rules/admixture.smk"
-include: "rules/structural_variation.smk"
-include: "rules/plot_alignments.smk"
-include: "rules/concordance.smk"
-include: "rules/coverage.smk"
-include: "rules/one_off.smk"
+#include: "rules/structural_variation.smk"
+#include: "rules/plot_alignments.smk"
+#include: "rules/concordance.smk"
+#include: "rules/coverage.smk"
+#include: "rules/one_off.smk"
 include: "rules/misc.smk"
 
 #ruleorder: concat_autosomes > bcf_to_vcfgz
 #ruleorder: vep > bcf_to_vcfgz
 #ruleorder: vcfgz_to_bcf > call_SVs
-ruleorder: cut_adapters_with_i5_i7_genozipped > cut_adapters_with_i5_i7
+#ruleorder: cut_adapters_with_i5_i7_genozipped > cut_adapters_with_i5_i7
+
+
+## Output shortcuts
+# A test
+test = config["results"] + "test/test.txt"
+
+# Create post-processed BAMs
+bams = expand(config["results"] + "alignments/markdup/{collect}.bam",
+    collect=collect_samples(fmt="{batch}/{seq}{indiv}_{library}_{flowcell_lane}"))
+
+# Create gVCFs through GATK by library
+gvcfs = expand(config["results"] + "gvcf/{collect}.chr{chr}.g.vcf.gz",
+    collect=collect_samples(fmt="{batch}/{seq}{indiv}_{library}"),
+    chr=AUTOSOMES)
+
+# Create GenomicsDB datastore. Also for when updating the datastore with new samples
+datastore = expand(config["results"] + "db/{dataset}/completed/{chr}.txt",
+    dataset=config['dataset'],
+    chr=AUTOSOMES)
+
+# Create joint-called VCF through GATK
+joint_called = expand(config["results"] + "joint_call/polyallelic/{dataset}.chr{chr}.vcf.gz",
+    dataset=config['dataset'],
+    chr=AUTOSOMES)
+
+filtered_vcf = expand(config["results"] + "genotypes/filtered/{dataset}.SNP.chr{chr}.vcf.gz",
+    dataset=config['dataset'],
+    chr=AUTOSOMES)
+
+pass_vcf = expand(config["results"] + "genotypes/pass/{dataset}.all.SNP.chr{chr}.bcf",
+    dataset=config['dataset'],
+    chr=AUTOSOMES)
+
+Clinvar_tsv = expand(config["results"] + "liftover/rheMac10ToHg38/annotated/{dataset}.all2.SNP.chr{chr}.tsv",
+    dataset=config['dataset'],
+    chr=AUTOSOMES)
+
+king_relatedness = expand(config["results"] + "kinship/KING/{dataset}.all.SNP.autosomal.kin",
+    dataset=config['dataset'])
+
+# Format required by PMx
+king_relatedness_PMx = expand(config["results"] + "kinship/KING/{dataset}.{subset}.SNP.autosomal.PMx.matrix",
+    # subset='all',
+    subset='founders',
+    dataset=config['dataset'])
+
+# fROH - use in ROH/fROH_bcftools.ipynb
+froh = expand(config["results"] + "roh/bcftools/{dataset}.{subset}.chr{chrom}.RG.roh",
+    dataset=config['dataset'],
+    subset="all",
+    chrom=AUTOSOMES)
+
+#GCTA
+inbreeding = expand(config["results"] + "inbreeding/GCTA/pass/{dataset}.{subset}.ibc",
+    dataset=config['dataset'],
+    #subset=config['subpops']
+    subset="all")
+
+# heterozygosity
+heterozygosity = config["results"] + 'heterozygosity/gvcf_counts.het',
+
+
+# import polars as pl
+# srr_ids = list(pl.read_csv("/master/abagwell/variant-analysis/resources/rhesus/samples/X202SC22011650-Z01-F001.srr.list", separator='\t')["srr"])
 
 rule all:
     """Generate target files. This rule runs automatically when Snakefile is run.
-    Add or modify the paths under input to change the target files generated by snakemake.
+    Add or modify the paths under `input` to change the target files generated by snakemake.
     """
     input:
         # Input for generating README.md file
         #config["results"] + "README.md",
-        config["resources"] + "ref_fna/chromosomes.list",
-        config["target_files"],
+        #pass_vcf,
+        #inbreeding, froh, king_relatedness,
+        #king_relatedness_PMx,
+        pass_vcf,
+        # expand("/master/abagwell/workspace/SRA/verifying_MD5/X202SC22011650-Z01-F001/{accession}_{read}.no_header_md5sum.tsv",
+        #     accession=srr_ids,
+        #     read=["1", "2"]),
+        config["resources"] + "ref_fna/autosomes.list",
+        #config["target_files"],
+
+
+        
+        

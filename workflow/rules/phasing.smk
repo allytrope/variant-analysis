@@ -10,15 +10,15 @@ rule deduplicate_individuals:
     Then the most by the last run name alphabetically (which is usually the newest)."""
     input:
         #bcf = config["results"] + "haplotypes/SHAPEIT5_WGS/{dataset}.SNP.chr{chr}.bcf",
-        vcf = config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.vcf.gz",
-        tbi = config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
+        vcf = config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.bcf",
+        tbi = config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.bcf.csi",
         # vcf = config["results"] + "genotypes/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
         # tbi = config["results"] + "genotypes/filtered/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
     output:
         vcf = config["results"] + "genotypes/deduplicated/{dataset}.{mode}.chr{chr}.vcf.gz",
         tmp_samples = temp(config["results"] + "genotypes/deduplicated/{dataset}.{mode}.chr{chr}.samples.list"),
         tmp_samples2 = temp(config["results"] + "genotypes/deduplicated/{dataset}.{mode}.chr{chr}.samples2.list"),
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     # Split full sample names into seq + animal_id + run_id assuming a field like so: {seq}{animal_id}_{run_id}
     # Sort by priority
     # Only keep first of each animal_id
@@ -29,7 +29,7 @@ rule deduplicate_individuals:
             | sed 's/.\{{3\}}/&\t/; s/_/\t/' \
             | csvtk sort \
                 -k 2,1:u,3:r \
-                -L 1:<(for i in WGS WES GBS AMP; do echo $i; done) \
+                -L 1:<(for i in WGS lpWGS WES GBS AMP; do echo $i; done) \
                 -t \
                 -H \
             | awk 'BEGIN {{FS="\t"; OFS=""}} $2!=prev {{print $1,$2,"_"$3}} {{prev=$2}}' \
@@ -55,7 +55,7 @@ rule only_one_seq_type:
         vcf = config["results"] + "genotypes/only_{seq}/{dataset}.{mode}.chr{chr}.vcf.gz",
         tmp_samples = temp(config["results"] + "genotypes/only_{seq}/{dataset}.{mode}.chr{chr}.samples.list"),
         tmp_samples2 = temp(config["results"] + "genotypes/only_{seq}/{dataset}.{mode}.chr{chr}.samples2.list"),
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         bcftools query -l {input.vcf} \
             | sed 's/.\{{3\}}/&\t/; s/_/\t/' \
@@ -77,27 +77,6 @@ rule only_one_seq_type:
 
 # ----------------
 
-rule plink_ped:
-    """Create PLINK .ped file from demographics file. All families set to `F1` and all phenotypes set to `0`, which means missing."""
-    input:
-        demographics = config["demographics"],
-    output:
-        ped = config["resources"] + "pedigree/plink.ped",
-    conda: "../envs/bio.yaml"
-    shell: """
-        csvtk cut {input.demographics} \
-            -f Id,Sire,Dam,Sex \
-            -t \
-        | csvtk replace \
-            -f Sire,Dam \
-            -p '^$' \
-            -r '0' \
-            -t \
-        | sed '1d' \
-        | awk 'BEGIN {{FS="\t"; OFS="\t"}} {{print "F1",$0,"0"}}' \
-        > {output.ped} \
-        """
-
 rule genotype_posteriors:
     """Calculate genotype posterior probabilties. This adds a PP field in the FORMAT column of the VCF for the genotype posteriors.
     Also, the GQ and GT fields may also be subject to change. These are calculated using information from the other samples in the file
@@ -105,21 +84,21 @@ rule genotype_posteriors:
     # Switch input vcf/tbi as needed
     input:
         # TODO: Generalize the "only_{seq}"
-        vcf = config["results"] + "genotypes/only_WES/{dataset}.{mode}.chr{chr}.vcf.gz",
-        tbi = config["results"] + "genotypes/only_WES/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
-        #vcf = config["results"] + "genotypes/deduplicated/{dataset}.{mode}.chr{chr}.vcf.gz",
-        #tbi = config["results"] + "genotypes/deduplicated/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
+        #vcf = config["results"] + "genotypes/only_WES/{dataset}.{mode}.chr{chr}.vcf.gz",
+        #tbi = config["results"] + "genotypes/only_WES/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
+        vcf = config["results"] + "genotypes/deduplicated/{dataset}.{mode}.chr{chr}.vcf.gz",
+        tbi = config["results"] + "genotypes/deduplicated/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
         #ped = config["resources"] + "pedigree/trios.ped",
-        ped = config["resources"] + "pedigree/plink.ped",
+        #ped = config["resources"] + "pedigree/plink.ped",
     output:
         config["results"] + "genotypes/posteriors/{dataset}.{mode}.chr{chr}.vcf.gz",
     threads: 1
     resources: nodes = 1
     conda: "../envs/gatk.yaml"
     # --tmp-dir ~/tmp/{rule}
+    #--pedigree {input.ped} \
     shell: """
         gatk --java-options "-Xmx8g" CalculateGenotypePosteriors \
-            --pedigree {input.ped} \
             -V {input.vcf} \
             -O {output} \
             """
@@ -157,7 +136,12 @@ rule genotype_passing:
     input:
         #vcf = config["results"] + "genotypes/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
         vcf = config["results"] + "genotypes/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
-        subpop = config["subpop"],
+        #subpop = config["subpop"],
+        subpop = lambda wildcards: branch(
+            True if "all" not in wildcards.subset else False,
+            #then = config["subpop"],
+            then = config["resources"] + f"subpop/{wildcards.subset}.list",
+        )
     output:
         bcf = config["results"] + "genotypes/pass/{dataset}.{subset}.{mode}.chr{chr}.bcf",
     params:
@@ -168,9 +152,20 @@ rule genotype_passing:
         subset_samples = lambda wildcards, input: "" if "all" in wildcards.subset else f"-S {input.subpop}",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/bio.yaml"
-    # -i 'INFO/DP >= 20' \
+
     # -e 'F_MISSING > 0.1' \
+    # shell: """
+    #     bcftools view {input.vcf} \
+    #         {params.subset_samples} \
+    #         -Ou \
+    #     | bcftools view \
+    #         --min-af {params.min_AF} \
+    #         --max-af {params.max_AF} \
+    #         --min-ac {params.min_AC} \
+    #         -e 'F_MISSING>0.2' \
+    #         -Ob \
+    #         -o {output.bcf} \
+    #     """
     shell: """
         bcftools view {input.vcf} \
             {params.subset_samples} \
@@ -179,7 +174,6 @@ rule genotype_passing:
             --min-af {params.min_AF} \
             --max-af {params.max_AF} \
             --min-ac {params.min_AC} \
-            -e 'F_MISSING>0.2' \
             -Ob \
             -o {output.bcf} \
         """
@@ -193,7 +187,7 @@ rule prune_LD:
     threads: 1
     resources:
         nodes = 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         bcftools +prune {input.bcf} \
             -m 0.6 \
@@ -206,7 +200,7 @@ rule create_plink_files:
    """Create PLINK .bed, .bim, and .fam files."""
     input:
         bcf = "{path}/{dataset}.{subset}.{mode}.chr{chr}.bcf",
-        demographics = config["demographics"],
+        demographics = config["resources"] + "pedigree/demographics.tsv",
     output:
         bed = "{path}/plink/{dataset}.{subset}.{mode}.chr{chr}.bed",
         bim = "{path}/plink/{dataset}.{subset}.{mode}.chr{chr}.bim",
@@ -214,12 +208,7 @@ rule create_plink_files:
         update_parents = "{path}/plink/{dataset}.{subset}.{mode}.chr{chr}.update_parents.tsv",
         update_sex = "{path}/plink/{dataset}.{subset}.{mode}.chr{chr}.update_sex.tsv",
     params:
-        out_prefix = lambda wildcards: "{path}/plink/{dataset}.{subset}.{mode}.chr{chr}".format(
-            path=wildcards.path,
-            dataset=wildcards.dataset,
-            subset=wildcards.subset,
-            mode=wildcards.mode,
-            chr=wildcards.chr),
+        out_prefix = subpath(output.bed, strip_suffix=".bed"),
     conda: "../envs/rvtests.yaml"
     # --chr {wildcards.chr} \
     shell: """
@@ -254,7 +243,7 @@ rule create_autosomal_plink_files:
    """Create PLINK .bed, .bim, and .fam files."""
     input:
         bcf = "{path}/{dataset}.{subset}.{mode}.autosomal.bcf",
-        demographics = config["demographics"],
+        demographics = config["resources"] + "pedigree/demographics.tsv",
     output:
         bed = "{path}/plink/{dataset}.{subset}.{mode}.autosomal.bed",
         bim = "{path}/plink/{dataset}.{subset}.{mode}.autosomal.bim",
@@ -262,11 +251,7 @@ rule create_autosomal_plink_files:
         update_parents = "{path}/plink/{dataset}.{subset}.{mode}.autosomal.update_parents.tsv",
         update_sex = "{path}/plink/{dataset}.{subset}.{mode}.autosomal.update_sex.tsv",
     params:
-        out_prefix = lambda wildcards: "{path}/plink/{dataset}.{subset}.{mode}.autosomal".format(
-            path=wildcards.path,
-            dataset=wildcards.dataset,
-            subset=wildcards.subset,
-            mode=wildcards.mode),
+        out_prefix = subpath(output.bed, strip_suffix=".bed"),
     conda: "../envs/rvtests.yaml"
     shell: """
         cat {input.demographics} \
@@ -333,7 +318,7 @@ rule count_rates_of_Mendelian_errors_by_GQ:
         script = "workflow/scripts/count_Mendelian_errors.py",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         bcftools annotate -x INFO,^FORMAT/GT {input.trio} \
         | bcftools view -H -i "F_MISSING==0" \
@@ -342,8 +327,6 @@ rule count_rates_of_Mendelian_errors_by_GQ:
         | sort \
         | uniq -c > {output.counts} \
         """
-
-# def find_all_bams():
 
 rule whatshap_cohort:
     """Phase GATK VCF. Uses BAMs and parent information to phase along parent genomes."""
@@ -361,7 +344,7 @@ rule whatshap_cohort:
         dam_bam = lambda wildcards, input: find_bam(2, wildcards, input),
     threads: 1
     resources: nodes = 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         whatshap phase {input.vcf} {params.child_bam} {params.sire_bam} {params.dam_bam} \
             --reference={input.ref_fasta} \
@@ -404,7 +387,7 @@ rule whatshap_trio:
         dam_bam = lambda wildcards, input: find_bam(2, wildcards, input),
     threads: 1
     resources: nodes = 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         whatshap phase {input.vcf} {params.child_bam} {params.sire_bam} {params.dam_bam} \
             --reference={input.ref_fasta} \
@@ -421,7 +404,7 @@ rule indiv_vcf:
         indiv = config["results"] + "haplotypes/whatshap/indivs/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         SAMPLE=$(bcftools query -l {input.trio} | head -n 1); \
         bcftools view {input.trio} \
@@ -446,7 +429,7 @@ rule merge_whatshap:
         merged = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         bcftools merge {input.trios} \
             -Oz \
@@ -460,7 +443,7 @@ rule restrict_vcf_seq_type:
     output:
         samples = temp(config["results"] + "haplotypes/whatshap/{dataset}.{mode}.chr{chr}.{seq}_samples.list"),
         vcf = config["results"] + "haplotypes/whatshap/{seq}/{dataset}.{mode}.chr{chr}.vcf.gz",
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         bcftools query -l {input.vcf} | grep {wildcards.seq} > {output.samples};
         bcftools view {input.vcf} \

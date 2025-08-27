@@ -33,7 +33,7 @@ rule remove_filtered_from_truth_or_training:
     output: vcf = "{path}/truth_and_training_removed/{name}.chr{chr}.{mode}.{resource}.vcf.gz",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         bcftools view -f PASS {input.vcf} -Oz > {output.vcf}
         """
@@ -125,7 +125,7 @@ rule pass_only:
         vcf = config["results"] + "{filter_method}/pass_only/{dataset}.{mode}.biallelic.recalibrated.pass_only.vcf.gz",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         bcftools view {input.vcf} \
             -f PASS \
@@ -165,7 +165,7 @@ rule snp_summary:
 #             warnings = config["results"] + "joint_call/{workspace}_snp_summary_warnings.txt",
 #     params: species = config["ref"]["species"],
 #     threads: 1
-#     conda: "../envs/bio.yaml"
+#     conda: "../envs/common.yaml"
 #     shell: "vep \
 #     --input_file {input.vcf} \
 #     --fasta {input.ref} \

@@ -2,23 +2,58 @@
 
 ## Variant calling
 
+# rule variant_calling_bcftools:
+#     """Variant calling with `bcftools`."""
+#     shell: """
+#         bcftools mpileup {input.bam} \
+#             -Ou \
+#             -f {input.ref_fasta} \
+#         | bcftools call \
+#             --ploidy 2 \
+#             -m \
+#             -v \
+#             -o {output.bcf} \
+#             -Ob \
+#         """
+
+rule variant_calling_freebayes:
+    """Variant calling with `freebayes`."""
+    shell: """
+        freebayes {input.bams} \
+            -f {input.ref_fasta} \
+            -r {wildcards.chr} \
+        """
+
 rule call_variants:
-    """Call variants from a single chromosome to make VCF file."""
+    """Call variants from a single chromosome to make VCF file.
+    Verify that rule is grouping by the appropriate field, using library."""
     input:
         ref = config["ref_fasta"],
         fai = config["ref_fasta"] + ".fai",
         dict = ".".join(config["ref_fasta"].split(".")[:-2]) + ".dict",
-        #bam = config["results"] + "alignments/merged/{sample}.bam",
-        bams = lambda wildcards: [f'{config["results"]}alignments/recalibrated/{seqsample_library_run}.bam' for seqsample_library_run in collect_runs_from_library(wildcards, full=True)],
-        bais = lambda wildcards: [f'{config["results"]}alignments/recalibrated/{seqsample_library_run}.bam.bai' for seqsample_library_run in collect_runs_from_library(wildcards, full=True)],
-        #bam_i = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_library(wildcards, full=True))),
+        bams = lambda wildcards: expand(config["results"] + "alignments/markdup/{sample}.bam",
+            sample=collect_samples(
+                fmt="{batch}/{seq}{indiv}_{library}_{flowcell_lane}",
+                col="library",
+                val=wildcards.library),
+                # col="indiv",
+                # val=wildcards.indiv),
+        ),
+        bais = lambda wildcards: expand(config["results"] + "alignments/markdup/{sample}.bam.bai",
+            sample=collect_samples(
+                fmt="{batch}/{seq}{indiv}_{library}_{flowcell_lane}",
+                col="library",
+                val=wildcards.library),
+                # col="indiv",
+                # val=wildcards.indiv),
+        ),
     params:
         bams = lambda wildcards, input: list(map(lambda bam: "-I " + bam, input.bams)),
     output:
-        vcf = config["results"] + "gvcf/{chr}/{seq}{indiv_id}_{library}.chr{chr}.g.vcf.gz",
-        #tbi = config["results"] + "gvcf/{chr}/{seq}{indiv_id}_{library}.chr{chr}.g.vcf.gz.tbi",
+        vcf = config["results"] + "gvcf/{batch}/{seq}{indiv}_{library}.chr{chr}.g.vcf.gz",
+        #tbi = config["results"] + "gvcf/{chr}/{seq}{indiv}_{library}.chr{chr}.g.vcf.gz.tbi",
     log:
-        config["results"] + "gvcf/{chr}/{seq}{indiv_id}_{library}.chr{chr}.log",
+        config["results"] + "gvcf/{batch}/{seq}{indiv}_{library}.chr{chr}.log",
     conda: "../envs/gatk.yaml"
     threads: 2  # 4 is default. Also see https://hpc.nih.gov/training/gatk_tutorial/haplotype-caller.html for recommended threads.
     resources: nodes = 2
@@ -40,15 +75,16 @@ rule call_variants_merge_chromosomes:
         seq = r"WGS|WES|GBS|AMP",
         run = r"[A-Za-z0-9_-]+",
     input:
-        vcfs = lambda wildcards: expand(config["results"] + "gvcf/{chr}/{seq}{indiv_id}_{library}.chr{chr}.g.vcf.gz",
+        vcfs = lambda wildcards: expand(config["results"] + "gvcf/{batch}/{seq}{indiv}_{library}.chr{chr}.g.vcf.gz",
             chr=CHROMOSOMES,
+            batch=wildcards.batch,
             seq = wildcards.seq,
-            indiv_id = wildcards.indiv_id,
+            indiv = wildcards.indiv,
             library = wildcards.library),
     output:
-        vcf = config["results"] + "gvcf/{seq}{indiv_id}_{library}.g.vcf.gz",
-        #tbi = config["results"] + "gvcf/{seq}{indiv_id}_{library}.g.vcf.gz.tbi",
-    conda: "../envs/bio.yaml"
+        vcf = config["results"] + "gvcf/{batch}/{seq}{indiv}_{library}.g.vcf.gz",
+        #tbi = config["results"] + "gvcf/{seq}{indiv}_{library}.g.vcf.gz.tbi",
+    conda: "../envs/common.yaml"
     threads: 1
     resources: nodes = 1
     shell: """
@@ -59,40 +95,49 @@ rule call_variants_merge_chromosomes:
 
 # Consolidation of GVCFs
 rule create_sample_map:
-    """Create sample map that contains names and paths to all VCFs to be used in consolidate rule.
-    Note: This output file will need to be deleted if changing what will be added in the consolidate rule."""
+    """Create sample map that contains names and paths to all VCFs to be used in consolidate rule."""
     input:
-        gvcfs = lambda wildcards: expand("{results}gvcf/{chr}/{sample}.chr{chr}.g.vcf.gz",
+        gvcfs = lambda wildcards: expand("{results}gvcf/{sample}.chr{chr}.g.vcf.gz",
             results=config["results"],
-            sample=SAMPLES,
+            sample=collect_samples(fmt="{batch}/{seq}{indiv}_{library}"),
             chr=wildcards.chr),
     output:
-        #sample_map = temp(config["results"] + "db/{dataset}.sample_map"),
-        sample_map = config["results"] + "db/sample-maps/{dataset}.chr{chr}.sample-map",
+        sample_map = temp(config["results"] + "db/sample-maps/{dataset}.chr{chr}.sample-map"),
+    params:
+        json = lambda wildcards: config["results"] + f"db/{wildcards.dataset}/{wildcards.chr}/callset.json",
     threads: 1
     resources: nodes = 1
     run:
         import json
-        with open(f'/master/abagwell/variant-analysis/results/rhesus/db/{wildcards.dataset}/1/callset.json') as f:
-            data = json.load(f)
-            samples_already_in_datastore = [sample['sample_name'] for sample in data['callsets']]
+        print(f'{params.json}')
+        try:
+            with open(f'{params.json}') as f:
+                print('try beginning')
+                data = json.load(f)
+                samples_already_in_datastore = [sample['sample_name'] for sample in data['callsets']]
+                print('try end')
+        except FileNotFoundError:
+            print('except')
+            samples_already_in_datastore = []
+        print(samples_already_in_datastore)
 
         with open(output.sample_map, "w") as sample_map:
             for gvcf in input.gvcfs:
                 sample = gvcf.split("/")[-1].split(".")[0]
+                print(sample)
                 if sample not in samples_already_in_datastore:
+                    print("not already in datastore")
                     sample_map.write(f"{sample}\t{gvcf}\n")
 
 rule consolidate:
     """Combine the chromosomes of .g.vcf files into GenomicsDB datastore."""
     input:
-        contigs = config["resources"] + "ref_fna/chromosomes.list",
-        gvcfs = lambda wildcards: expand("{results}gvcf/{chr}/{sample}.chr{chr}.g.vcf.gz{ext}",
+        gvcfs = lambda wildcards: expand("{results}gvcf/{sample}.chr{chr}.g.vcf.gz{ext}",
         #gvcfs = lambda wildcards: expand("{results}gvcf/{sample}.g.vcf.gz{ext}",
-            ext=["", ".tbi"],
             results=config["results"],
-            sample=SAMPLES,
-            chr=wildcards.chr),
+            sample=collect_samples(fmt="{batch}/{seq}{indiv}_{library}"),
+            chr=wildcards.chr,
+            ext=["", ".tbi"],),
         sample_map = config["results"] + "db/sample-maps/{dataset}.chr{chr}.sample-map",  # gVCFs are referenced in this file
     output:
         touch(config["results"] + "db/{dataset}/completed/{chr}.txt"),
@@ -104,7 +149,6 @@ rule consolidate:
     threads: 2  # Just for opening multiple .vcf files at once.
     resources: nodes = 2
     conda: "../envs/gatk.yaml"
-    # CONTIGS=$(awk 'BEGIN {{ORS = ","}} {{print $0}}' {input.contigs}); \
     shell: """
         if [ -d {params.db} ]; \
         then WORKSPACE_FLAG="genomicsdb-update-workspace-path"; \
@@ -144,7 +188,7 @@ rule consolidate:
 #         """
 
 ## Jointly call variants
-rule join_call_cohort:
+rule joint_call_cohort:
     """Use GenomicsDB to jointly call a VCF file."""
     input:
         ref = config["ref_fasta"],
@@ -199,17 +243,16 @@ rule biallelics_by_mode:
         tbi = config["results"] + "joint_call/polyallelic/{dataset}.chr{chr}.vcf.gz.tbi",
         ref_fasta = config["ref_fasta"],
     output:
-        split = config["results"] + "joint_call/biallelic/{dataset}.{mode}.chr{chr}.vcf.gz",
+        split = config["results"] + "joint_call/biallelic/{dataset}.{mode}.chr{chr}.bcf",
     params:
         #-e'type{params.equality}"snp"' \
         #equality = lambda wildcards: "=" if wildcards.mode == "indel" else "!=",
         equality_option = lambda wildcards: """-e'type="snp"'""" if wildcards.mode == "indel" else (
             """-e'type!="snp"'""" if wildcards.mode == "SNP" else ""
             ),
-
     threads: 1
     resources: nodes = 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     # 1) Separate multiallelics into different lines
     # 2) Take only SNPs or indels
     # 3) Merge multiallelics back into same lines
@@ -234,6 +277,6 @@ rule biallelics_by_mode:
         | bcftools view \
             -M2 \
             -m2 \
-            -Oz \
+            -Ob \
             -o {output.split} \
         """

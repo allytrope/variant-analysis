@@ -2,74 +2,75 @@
 
 CONFIG = config["hard_filter"]
 
-def filters(mode):
-    """Use in rule hard_filter."""
-    if mode == "SNP":
-        return f"""-filter "QUAL < {CONFIG["QUAL"]}" --filter-name "QUAL{CONFIG["QUAL"]}" \
-                  -filter "QD < {CONFIG["QD"]}" --filter-name "QD{CONFIG["QD"]}" \
-                  -filter "SOR > {CONFIG["SOR"]}" --filter-name "SOR{CONFIG["SOR"]}" \
-                  -filter "FS > {CONFIG["FS"]}" --filter-name "FS{CONFIG["FS"]}" \
-                  -filter "MQ < {CONFIG["MQ"]}" --filter-name "MQ{CONFIG["MQ"]}" \
-                  -filter "MQRankSum < {CONFIG["MQRankSum"]}" --filter-name "MQRankSum{CONFIG["MQRankSum"]}" \
-                  -filter "ReadPosRankSum < {CONFIG["ReadPosRankSum"]}" --filter-name "ReadPosRankSum{CONFIG["ReadPosRankSum"]}" """
-    elif mode == "indel":
-        return """-filter "QUAL < 30.0" --filter-name "QUAL30" \
-                  -filter "QD < 2.0" --filter-name "QD2" \
-                  -filter "FS > 200.0" --filter-name "FS200" \
-                  -filter "ReadPosRankSum < -20.0" --filter-name "ReadPosRankSum-20" """
-rule hard_filter:
-    """Hard filter .vcf file."""
-    input:
-        vcf = config["results"] + "joint_call/biallelic/{dataset}.{mode}.chr{chr}.vcf.gz",
-        tbi = config["results"] + "joint_call/biallelic/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
-    output:
-        filtered = config["results"] + "hard_filtered/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
-    threads: 1
-    resources: nodes = 1
-    conda: "../envs/gatk.yaml"
-    params:
-        filters = lambda wildcards: filters(wildcards.mode),
-    shell: """
-        gatk --java-options '-Xmx8g' VariantFiltration \
-            -V {input.vcf} \
-            -O {output.filtered} \
-            {params.filters} """
 
+# def filters(mode):
+#     """Use in rule hard_filter."""
+#     if mode == "SNP" or mode == "both":
+#         return f"""-filter "QUAL < {CONFIG["QUAL"]}" --filter-name "QUAL{CONFIG["QUAL"]}" \
+#                   -filter "QD < {CONFIG["QD"]}" --filter-name "QD{CONFIG["QD"]}" \
+#                   -filter "SOR > {CONFIG["SOR"]}" --filter-name "SOR{CONFIG["SOR"]}" \
+#                   -filter "FS > {CONFIG["FS"]}" --filter-name "FS{CONFIG["FS"]}" \
+#                   -filter "MQ < {CONFIG["MQ"]}" --filter-name "MQ{CONFIG["MQ"]}" \
+#                   -filter "MQRankSum < {CONFIG["MQRankSum"]}" --filter-name "MQRankSum{CONFIG["MQRankSum"]}" \
+#                   -filter "ReadPosRankSum < {CONFIG["ReadPosRankSum"]}" --filter-name "ReadPosRankSum{CONFIG["ReadPosRankSum"]}" """
+#     elif mode == "indel":
+#         return """-filter "QUAL < 30.0" --filter-name "QUAL30" \
+#                   -filter "QD < 2.0" --filter-name "QD2" \
+#                   -filter "FS > 200.0" --filter-name "FS200" \
+#                   -filter "ReadPosRankSum < -20.0" --filter-name "ReadPosRankSum-20" """
 rule pass_only_hard_filter:
-    """Remove variants that have been filtered."""
+    """Remove variants by filters."""
     input:
-        vcf = config["results"] + "{filter_method}/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
+        #vcf = config["results"] + "{filter_method}/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
+        bcf = config["results"] + "joint_call/biallelic/{dataset}.{mode}.chr{chr}.bcf",
     output:
-        vcf = config["results"] + "{filter_method}/pass/{dataset}.{mode}.chr{chr}.vcf.gz",
+        bcf = config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.bcf",
+    params:
+        QUAL = CONFIG["QUAL"],
+        QD = CONFIG["QD"],
+        SOR = CONFIG["SOR"],
+        FS = CONFIG["FS"],
+        MQ = CONFIG["MQ"],
+        MQRankSum = CONFIG["MQRankSum"],
+        ReadPosRankSum = CONFIG["ReadPosRankSum"],
+    log: config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.log",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
-        bcftools view {input.vcf} \
-            -f PASS \
-            -Oz \
-            -o {output.vcf}"""
+        bcftools view {input.bcf} \
+            -e 'QUAL < {params.QUAL} \
+                || QD < {params.QD} \
+                || SOR < {params.SOR} \
+                || FS < {params.FS} \
+                || MQ < {params.MQ} \
+                || MQRankSum < {params.MQRankSum} \
+                || ReadPosRankSum < {params.ReadPosRankSum}' \
+            -Ob \
+            -o {output.bcf} \
+        2> {log}
+        """
 
 ## --> to phasing.smk
 
 rule merge_filtered_subsets:
     """Merge .vcf file containing SNPs and those containing indels."""
     input:
-        vcfs = lambda wildcards: expand(config["results"] + "{filter_method}/pass/{dataset}.{mode}.vcf.gz",
+        bcfs = lambda wildcards: expand(config["results"] + "{filter_method}/pass/{dataset}.{mode}.bcf",
             dataset=wildcards.dataset,
             mode=["SNP", "indel"]),
-        tbis = lambda wildcards: expand(config["results"] + "{filter_method}/pass/{dataset}.{mode}.vcf.gz.tbi",
+        tbis = lambda wildcards: expand(config["results"] + "{filter_method}/pass/{dataset}.{mode}.bcf.csi",
             dataset=wildcards.dataset,
             mode=["SNP", "indel"]),
     output:
-        config["results"] + "{filter_method}/pass/{dataset}.vcf.gz",
+        config["results"] + "{filter_method}/pass/{dataset}.bcf",
     threads: 2
     resources: nodes = 2
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
-        bcftools  {input.vcfs} \
+        bcftools {input.vcfs} \
             --allow-overlaps \
-            -Oz \
+            -Ob \
             -o {output} \
             --threads {threads}"""
 
@@ -103,7 +104,7 @@ rule merge_filtered_subsets:
 #     output: subset = config["results"] + "{filter_method}/pass/{workspace}.{mode}.pass.subset.vcf.gz",
 #     threads: 1
 #     resources: nodes = 1
-#     conda: "../envs/bio.yaml"
+#     conda: "../envs/common.yaml"
 #     # # Ideally reverse order since `reheader` doesn't ahve a -O option to make into .vcf.gz
 #     # Shell command does the following:
 #     # 1) Subset samples
@@ -137,7 +138,7 @@ rule subset_joint_vcf:
         subset = config["results"] + "{filter_method}/pass/{dataset}.{mode}.pass_only.subset.vcf.gz",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     # # Ideally reverse order since `reheader` doesn't ahve a -O option to make into .vcf.gz
     # Shell command does the following:
     # 1) Subset samples
@@ -171,7 +172,7 @@ rule subset_to_GBS_WES_or_WGS:
         subset = config["results"] + "{filter_method}/pass/{subset}.{mode}.stricter_filter.vcf.gz",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     # # Ideally reverse order since `reheader` doesn't ahve a -O option to make into .vcf.gz
     # Shell command does the following:
     # 1) Subset samples

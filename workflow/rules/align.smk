@@ -1,190 +1,53 @@
 """Rules trimming, alignment, and post-alignment processing of BAMs. Subsequent rules of main workflow are found in variant_calling.smk."""
 
 ## Trimming
-# rule trim_fastp:
-#     """Trim using fastp."""
-#     output:
-#         html = config["results"] + "trimmed/html/{batch}/{seq}{sample_run}.html",
-#         json = config["results"] + "trimmed/json/{batch}/{seq}{sample_run}.json",
-#     shell: """
-#         fastp \
-#             --html {output.html} \
-#             --json {output.json} \
-#             --report_title {wildcards.batch}/{wildcards.seq}{wildcards.sample_run} \
-#             --stdin \
-#             --stdout \
-#             --interleaved_in \
-#             --detect_adapter_for_pe \
-#             --correction \
-#         """
-
-rule cut_adapters_with_i5_i7:
-    """Cut out 3' end adapters using i7 and i5 adapter information.
-    
-    This implementation takes i7 and i5 values from the first line of the .R1.fastq file and assumes that all reads in both R1 and R2 files use those same adapters.
-    Additionally, this assumes that the Truseq Dual Index Library was used for the adapters surrounding the i7 and i5 ones.
-    These are hard coded under "params". The i7 information is used for finding the adapters in R1 and then i5 for R2."""
-    wildcard_constraints:
-        seq = "WGS|WES|AMP",
+rule trim_fastp:
+    """Trim using fastp."""
+    # TODO: Generalize input
     input:
-        reads = lambda wildcards: expand(config["reads"] + "{batch}/{seq}{sample_run}.{read}.fastq.gz",
+        #reads = lambda wildcards: expand(config["resources"] + "reads/gzipped/{batch}/{seq}{indiv}_{library}_{flowcell_lane}.{read}.fastq.gz",
+        reads = lambda wildcards: expand(config["resources"] + "reads/{batch}/{seq}{indiv}_{library}_{flowcell_lane}.{read}.fastq.gz",
             batch=wildcards.batch,
             seq=wildcards.seq,
-            sample_run=wildcards.sample_run,
+            indiv=wildcards.indiv,
+            library=wildcards.library,
+            flowcell_lane=wildcards.flowcell_lane,
             read=["R1", "R2"]),
         #fastq = config["reads"] + "{batch}/{seq}{sample_run}.R1+2.fastq.genozip",
         #fastq = config["results"] + "reads/{batch}/{seq}{sample_run}.R1+R2.fastq",
         ref_genozip = config["compression"]["ref_fasta"],
-    output: 
-        trimmed = temp(expand(config["results"] + "trimmed/{{batch}}/{{seq}}{{sample_run}}.{read}.fastq.gz",
-            read=["R1", "R2"])),
-    params: 
-        pre_i7 = "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC",
-        post_i7 = "ATCTCGTATGCCGTCTTCTGCTTG",
-        pre_i5 = "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
-        post_i5 = "GTGTAGATCTCGGTGGTCGCCGTATCATT",
-    threads: 4
-    resources: nodes = 4
-    conda: "../envs/bio.yaml"
-    # Use this when not using genozipped files: cutadapt {input.reads} \  Other: {input.fastq}?
+    output:
+        html = config["results"] + "trimmed/html/{batch}/{seq}{indiv}_{library}_{flowcell_lane}.html",
+        json = config["results"] + "trimmed/json/{batch}/{seq}{indiv}_{library}_{flowcell_lane}.json",
+        trimmed = pipe(config["results"] + "trimmed/reads/{batch}/{seq}{indiv}_{library}_{flowcell_lane}.R1+2.fastq"),
+    log:
+        config["results"] + "trimmed/log/{batch}/{seq}{indiv}_{library}_{flowcell_lane}.log",
+    conda: "../envs/fastp.yaml"
     shell: """
-        # ADAPTERS=$(gunzip -c {input.reads[0]} | head -n 1 | cut -d " " -f 2 | cut -d ":" -f 4);
-        # i7=$(echo $ADAPTERS | cut -d "+" -f 1);
-        # i5=$(echo $ADAPTERS | cut -d "+" -f 2);
-        R1_END_ADAPTER="{params.pre_i7}";  # ${{i7}}{params.post_i7}";
-        R2_END_ADAPTER="{params.pre_i5}";  # ${{i5}}{params.post_i5}";
-        cutadapt {input.reads} \
-            -a $R1_END_ADAPTER \
-            -A $R2_END_ADAPTER \
-            --cores {threads} \
-            -o {output.trimmed[0]} \
-            -p {output.trimmed[1]}"""
-
-rule cut_adapters_with_i5_i7_genozipped:
-    """Cut out 3' end adapters using i7 and i5 adapter information from genozipped FASTQs.
-    
-    This implementation takes i7 and i5 values from the first line of the .R1.fastq file and assumes that all reads in both R1 and R2 files use those same adapters.
-    Additionally, this assumes that the Truseq Dual Index Library was used for the adapters surrounding the i7 and i5 ones.
-    These are hard coded under "params". The i7 information is used for finding the adapters in R1 and then i5 for R2."""
-    wildcard_constraints:
-        seq = "WGS|WES|AMP",
-    input:
-        fastq_R1 = config["results"] + "reads/{batch}/{seq}{sample_run}.R1.fastq.gz",
-        fastq_R2 = config["results"] + "reads/{batch}/{seq}{sample_run}.R2.fastq.gz",
-        #genozip_ref = config["compression"]["ref_fasta"],
-    output: 
-        # trimmed = pipe(expand(config["results"] + "trimmed/{{batch}}/{{seq}}{{sample_run}}.{read}.fastq.gz",
-        #     read=["R1", "R2"])),
-        trimmed_R1 = temp(config["results"] + "trimmed/{batch}/{seq}{sample_run}.R1.fastq.gz"),
-        trimmed_R2 = temp(config["results"] + "trimmed/{batch}/{seq}{sample_run}.R2.fastq.gz"),
-    params: 
-        pre_i7 = "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC",
-        post_i7 = "ATCTCGTATGCCGTCTTCTGCTTG",
-        pre_i5 = "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
-        post_i5 = "GTGTAGATCTCGGTGGTCGCCGTATCATT",
-    threads: 4
-    resources: nodes = 4
-    conda: "../envs/bio.yaml"
-    shell: """
-        R1_END_ADAPTER="{params.pre_i7}";  # ${{i7}}{params.post_i7}";
-        R2_END_ADAPTER="{params.pre_i5}";  # ${{i5}}{params.post_i5}";
-        cutadapt {input.fastq_R1} {input.fastq_R2} \
-            -a $R1_END_ADAPTER \
-            -A $R2_END_ADAPTER \
-            --cores {threads} \
-            -o {output.trimmed_R1} \
-            -p {output.trimmed_R2} \
+        fastp \
+            --in1 {input.reads[0]} \
+            --in2 {input.reads[1]} \
+            --html {output.html} \
+            --json {output.json} \
+            --report_title {wildcards.batch}/{wildcards.seq}{wildcards.indiv}_{wildcards.library}_{wildcards.flowcell_lane} \
+            --stdout \
+            --detect_adapter_for_pe \
+            --correction \
+        > {output.trimmed} \
+        2> {log} \
         """
-
-# rule cut_adapters_with_i5_i7_AMP:
-#     """Cut out 3' end adapters using i7 and i5 adapter information.
-    
-#     This implementation takes i7 and i5 values from a barcodes file.
-#     Additionally, this assumes that the Truseq Dual Index Library was used for the adapters surrounding the i7 and i5 ones.
-#     These are hard coded under "params". The i7 information is used for finding the adapters in R1 and then i5 for R2."""
-#     wildcard_constraints:
-#         seq = "AMP",
-#     input: 
-#         reads = lambda wildcards: expand(config["reads"] + "{seq}{organism_id}.{read}.fastq.gz",
-#             seq=wildcards.seq,
-#             organism_id=wildcards.organism_id,
-#             read=["R1", "R2"]),
-#         barcodes = config["barcodes"]["AMP_barcodes"],
-#     output: 
-#         trimmed = expand(config["results"] + "trimmed/{{seq}}{{organism_id}}.{read}.fastq.gz",
-#             read=["R1", "R2"]),
-#     params: 
-#         pre_i7 = "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC",
-#         post_i7 = "ATCTCGTATGCCGTCTTCTGCTTG",
-#         pre_i5 = "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
-#         post_i5 = "GTGTAGATCTCGGTGGTCGCCGTATCATT",
-#     threads: 4
-#     resources: nodes = 4
-#     conda: "../envs/bio.yaml"
-#     shell: """
-#         i7=$(grep -P "^{wildcards.organism_id}\t" {input.barcodes} | cut -f 2);
-#         i5=$(grep -P "^{wildcards.organism_id}\t" {input.barcodes} | cut -f 3);
-#         R1_END_ADAPTER="{params.pre_i7}${{i7}}{params.post_i7}";
-#         R2_END_ADAPTER="{params.pre_i5}${{i5}}{params.post_i5}";
-#         cutadapt {input.reads} \
-#             -a $R1_END_ADAPTER \
-#             -A $R2_END_ADAPTER \
-#             --cores {threads} \
-#             -o {output.trimmed[0]} \
-#             -p {output.trimmed[1]}"""
-
-## This section started to error. Probably due to lack of barcodes file.
-# def find_barcode(wildcards, input):
-#     """Pull sample barcode from barcodes file, which contains reverse complements for R2."""
-#     df = pd.read_table(input.barcodes, header=None, names=["organism_id", "barcodes"])
-#     barcode = df.set_index("organism_id")["barcodes"].to_dict()[wildcards.sample_run]
-#     return str(Seq(barcode).reverse_complement())
-# rule cut_GBS_adapters:
-#     """Cut out 3' end adapters from GBS reads.
-
-#     This method doesn't rely on i7 or i5 values given in the header lines. Instead, R1 and R2 reads have the adapters given under params.
-#     After both of these adapters, there is a pseudoconsensus sequence, but left out since Cutadapt will remove anything after the given adapters."""
-#     wildcard_constraints:
-#         seq = "GBS",
-#     input:
-#         reads = lambda wildcards: expand(config["reads"] + "{seq}{sample_run}.{read}.fastq.gz",
-#             seq=wildcards.seq,
-#             sample_run=wildcards.sample_run,
-#             read=["R1", "R2"]),
-#         barcodes = config["barcodes"]["GBS_barcodes"],
-#     output: 
-#         trimmed = expand(config["results"] + "trimmed/{{seq}}{{sample_run}}.{read}.fastq.gz",
-#             read=["R1", "R2"]),
-#     params: 
-#         barcode = lambda wildcards, input: find_barcode(wildcards, input),
-#         R1_adapter = "AGATCGGAAGAGCGGTTCAGCAGGAATGCCGAG",
-#         R2_adapter = "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
-#     threads: 4
-#     resources: nodes = 4
-#     conda: "../envs/bio.yaml"
-#     shell: """
-#         ADAPTERS=$(gunzip -c {input.reads[0]} | head -n 1 | cut -d " " -f 2 | cut -d ":" -f 4);
-#         R1_END_ADAPTER="{params.R1_adapter}";
-#         R2_END_ADAPTER="{params.barcode}{params.R2_adapter}";
-#         cutadapt {input.reads} \
-#             -a $R1_END_ADAPTER \
-#             -A $R2_END_ADAPTER \
-#             --cores {threads} \
-#             -o {output.trimmed[0]} \
-#             -p {output.trimmed[1]}"""
 
 ## Alignment
-
-rule align_LRS:
-    """Align long read sequencing."""
-    input:
-        mmi = config["ref_fasta"] + ".mmi",
-    output:
-    shell: """
-        minimap2 {input.fastq} \
-            -d {input.mmi} \
-        > {output} \
-        """
+# rule align_LRS:
+#     """Align long read sequencing."""
+#     input:
+#         mmi = config["ref_fasta"] + ".mmi",
+#     output:
+#     shell: """
+#         minimap2 {input.fastq} \
+#             -d {input.mmi} \
+#         > {output} \
+#         """
 
 rule align:
     """Align .fastq sequence to reference genome.
@@ -195,51 +58,45 @@ rule align:
         #fastq_first_line = config["results"] + "reads/{batch}/{sample_run}.first_line.R1+2.fastq",
         ref = config["ref_fasta"],
         ref_indices = multiext(config["ref_fasta"], ".amb", ".ann", ".bwt", ".pac", ".sa"),
-        trimmed = lambda wildcards: expand(config["results"] + "trimmed/{batch}/{sample_run}.{read}.fastq.gz",
-            batch=wildcards.batch,
-            sample_run=wildcards.sample_run,
-            read=["R1", "R2"]),  # Piped
+        trimmed = config["results"] + "trimmed/reads/{batch}/{seq}{indiv}_{library}_{flowcell_lane}.R1+2.fastq",
     output:
-        alignment = config["results"] + "alignments/raw/{batch}/{sample_run}.bam",
+        alignment = pipe(config["results"] + "alignments/raw/{batch}/{seq}{indiv}_{library}_{flowcell_lane}.bam"),
     log:
-        config["results"] + "alignments/raw/{batch}/{sample_run}.log",
+        config["results"] + "alignments/log/{batch}/{seq}{indiv}_{library}_{flowcell_lane}.log",
     threads: 20
     resources: nodes = 20
-    conda: "../envs/bio.yaml"
+    conda: "../envs/align.yaml"
     # First of RG's tags must be SM and last must be PU because of how I have to call the sample names.
-    # shell: """
-    #     bash workflow/scripts/align.sh {input.trimmed[0]} {input.trimmed[1]} {input.ref} {output} {threads} {wildcards.sample_run} {input.fastq_first_line}
-    #     """
     shell: """
-        SAMPLE=$(echo {wildcards.sample_run} | cut -d _ -f 1 | cut -c 4-); \
-        LIBRARY=$(echo {wildcards.sample_run} | cut -d _ -f 2); \
-
-        bwa mem {input.ref} {input.trimmed[0]} {input.trimmed[1]} \
+        bwa mem {input.ref} {input.trimmed} \
+            -p \
             -t {threads} \
-            -R '@RG\\tSM:'$SAMPLE'\\tLB:'$LIBRARY'\\tID:'$SAMPLE'\\tPL:ILLUMINA' \
+            -R '@RG\\tSM:{wildcards.indiv}\\tLB:{wildcards.library}\\tID:{wildcards.indiv}\\tPL:ILLUMINA' \
             2> {log} \
-        | samtools view \
-            -o {output.alignment} \
+        > {output.alignment} \
         """
 
 rule alignment_postprocessing:
     """Fix mate pairs and mark duplicate reads."""
     wildcard_constraints:
-        seq = "WES|WGS",
+        seq = "WES|WGS|lpWGS",
     input:
-        alignment = config["results"] + "alignments/raw/{batch}/{seq}{sample_run}.bam",
+        alignment = config["results"] + "alignments/raw/{batch}/{seq}{indiv}_{library}_{flowcell_lane}.bam",
     output:
-        alignment = temp(config["results"] + "alignments/markdup/{batch}/{seq}{sample_run}.bam"),
-    conda: "../envs/bio.yaml"
+        alignment = config["results"] + "alignments/markdup/{batch}/{seq}{indiv}_{library}_{flowcell_lane}.bam",
+    conda: "../envs/common.yaml"
     threads: 1
     resources: nodes = 1
-    # This line can go under each samtools            -T ~/tmp/{rule} \
+    # This line can go under each samtools if a specific tmp directory is needed: -T ~/tmp/{rule} \
     shell: """
         samtools sort {input.alignment} \
             -n \
+            -u \
         | samtools fixmate - - \
             -m \
+            -u \
         | samtools sort - \
+            -u \
         | samtools markdup - {output.alignment} \
         """
 
@@ -249,65 +106,21 @@ rule alignment_postprocessing_without_markdup:
     wildcard_constraints:
         seq = "AMP|GBS",
     input:
-        alignment = config["results"] + "alignments/raw/{batch}/{seq}{sample_run}.bam",
+        alignment = config["results"] + "alignments/raw/{batch}/{seq}{indiv}_{library}_{flowcell_lane}.bam",
     output:
-        alignment = temp(config["results"] + "alignments/markdup/{batch}/{seq}{sample_run}.bam"),
-    conda: "../envs/bio.yaml"
+        alignment = config["results"] + "alignments/markdup/{batch}/{seq}{indiv}_{library}_{flowcell_lane}.bam",
+    conda: "../envs/common.yaml"
     threads: 1
     resources: nodes = 1
     shell: """
         samtools sort {input.alignment} \
             -n \
+            -u \
         | samtools fixmate - - \
             -m \
+            -u \
         | samtools sort - \
             -o {output.alignment} \
-        """
-
-## Base recalibration
-rule base_recalibration:
-    """Create recalibration table for correcting systemic error in base quality scores."""
-    input: 
-        ref = config["ref_fasta"],
-        ref_idx = config["ref_fasta"] + ".fai",
-        ref_gzi = config["ref_fasta"] + ".gzi",
-        ref_dict = ".".join(config["ref_fasta"].split(".")[:-2]) + ".dict",
-        bam = config["results"] + "alignments/markdup/{batch}/{sample_run}.bam",
-        known_variants = config["BQSR_known_variants"],
-        indexed_known_variants = config["BQSR_known_variants"] + ".tbi",
-    output:
-        config["results"] + "alignments/recal_tables/{batch}/{sample_run}.BQSR.recal",
-    threads: 1
-    resources: nodes = 1
-    conda: "../envs/gatk.yaml"
-    shell: """
-        gatk --java-options '-Xmx8g' BaseRecalibrator \
-            -R {input.ref} \
-            -I {input.bam} \
-            --known-sites {input.known_variants} \
-            -O {output} \
-        """
-
-rule apply_base_recalibration:
-    """Correct systemic error in base quality scores."""
-    input: 
-        ref = config["ref_fasta"],
-        ref_idx = config["ref_fasta"] + ".fai",
-        ref_dict = ".".join(config["ref_fasta"].split(".")[:-2]) + ".dict",
-        bam = config["results"] + "alignments/markdup/{batch}/{sample_run}.bam",
-        recal = config["results"] + "alignments/recal_tables/{batch}/{sample_run}.BQSR.recal",
-    output:
-        config["results"] + "alignments/recalibrated/{batch}/{sample_run}.bam",
-    threads: 1
-    resources: nodes = 1
-    conda: "../envs/gatk.yaml"
-    shell: """
-        gatk --java-options '-Xmx8g' ApplyBQSR \
-            -R {input.ref} \
-            -I {input.bam} \
-            --bqsr-recal-file {input.recal} \
-            -O {output} \
-            --create-output-bam-index false; \
         """
 
 rule merge_bams:
@@ -315,12 +128,25 @@ rule merge_bams:
     This rule is avoided where possible with process substitution,
     but is here for tools that require a seekable BAM."""
     input:
-        bams = collect_runs_from_sample,
-        bams_idx = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_sample(wildcards))),
+        # bams = collect_runs_from_sample,
+        # bams_idx = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_sample(wildcards))),
+        bams = lambda wildcards: expand(
+            config["results"] + "alignments/markdup/{collect}.bam",
+            collect = collect_samples(
+                fmt="{batch}/{seq}{indiv}_{library}_{flowcell_lane}",
+                col="library",
+                val=wildcards.library),
+        ),
+        bais = lambda wildcards: expand(
+            config["results"] + "alignments/markdup/{collect}.bam.bai",
+            collect = collect_samples(
+                fmt="{batch}/{seq}{indiv}_{library}_{flowcell_lane}",
+                col="library",
+                val=wildcards.library),
+        ),
     output:
-        #bam = temp(config["results"] + "alignments/merged/{batch}/{seq}{sample_run}.bam"),
-        bam = config["results"] + "alignments/merged/{batch}/{seq}{sample_run}.bam",  # Just for `rhesus` project until I update it
-    conda: "../envs/bio.yaml"
+        bam = config["results"] + "alignments/merged/{batch}/{seq}{indiv}_{library}.bam",
+    conda: "../envs/common.yaml"
     threads: 1
     resources: nodes = 1
     shell: """
