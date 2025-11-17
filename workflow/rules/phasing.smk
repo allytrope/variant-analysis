@@ -1,81 +1,6 @@
 """Contain rules for genotype refinement and haplotype estimation.
 This comes after hard_filter.smk or can be modified to come after variant_recalibration.smk."""
 
-# -------------
-# Use either of the following two rules
-
-rule deduplicate_individuals:
-    """Keep one of each animal and then simply names down to ids.
-    Samples are prioritizes in the order: WGS, WES, GBS, AMP.
-    Then the most by the last run name alphabetically (which is usually the newest)."""
-    input:
-        #bcf = config["results"] + "haplotypes/SHAPEIT5_WGS/{dataset}.SNP.chr{chr}.bcf",
-        vcf = config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.bcf",
-        tbi = config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.bcf.csi",
-        # vcf = config["results"] + "genotypes/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
-        # tbi = config["results"] + "genotypes/filtered/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
-    output:
-        vcf = config["results"] + "genotypes/deduplicated/{dataset}.{mode}.chr{chr}.vcf.gz",
-        tmp_samples = temp(config["results"] + "genotypes/deduplicated/{dataset}.{mode}.chr{chr}.samples.list"),
-        tmp_samples2 = temp(config["results"] + "genotypes/deduplicated/{dataset}.{mode}.chr{chr}.samples2.list"),
-    conda: "../envs/common.yaml"
-    # Split full sample names into seq + animal_id + run_id assuming a field like so: {seq}{animal_id}_{run_id}
-    # Sort by priority
-    # Only keep first of each animal_id
-    # Then apply list to VCF
-    # Reheader sample names to individual names
-    shell: """
-        bcftools query -l {input.vcf} \
-            | sed 's/.\{{3\}}/&\t/; s/_/\t/' \
-            | csvtk sort \
-                -k 2,1:u,3:r \
-                -L 1:<(for i in WGS lpWGS WES GBS AMP; do echo $i; done) \
-                -t \
-                -H \
-            | awk 'BEGIN {{FS="\t"; OFS=""}} $2!=prev {{print $1,$2,"_"$3}} {{prev=$2}}' \
-            | tee {output.tmp_samples} \
-            | cut -d '_' -f 1 \
-            | cut -c 4- \
-            > {output.tmp_samples2}; \
-        bcftools view {input.vcf} \
-            -S {output.tmp_samples} \
-        | bcftools reheader  \
-            -s {output.tmp_samples2} \
-        | bcftools view \
-            -Oz \
-        > {output.vcf} \
-        """
-
-rule only_one_seq_type:
-    """Subset down to only one sample for each individual and of only a specific sequencing type."""
-    input:
-        vcf = config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.vcf.gz",
-        tbi = config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
-    output:
-        vcf = config["results"] + "genotypes/only_{seq}/{dataset}.{mode}.chr{chr}.vcf.gz",
-        tmp_samples = temp(config["results"] + "genotypes/only_{seq}/{dataset}.{mode}.chr{chr}.samples.list"),
-        tmp_samples2 = temp(config["results"] + "genotypes/only_{seq}/{dataset}.{mode}.chr{chr}.samples2.list"),
-    conda: "../envs/common.yaml"
-    shell: """
-        bcftools query -l {input.vcf} \
-            | sed 's/.\{{3\}}/&\t/; s/_/\t/' \
-            | csvtk grep -p {wildcards.seq} -t -f 1 \
-            | awk 'BEGIN {{FS="\t"; OFS=""}} $2!=prev {{print $1,$2,"_"$3}} {{prev=$2}}' \
-            | tee {output.tmp_samples} \
-            | cut -d '_' -f 1 \
-            | cut -c 4- \
-            > {output.tmp_samples2}; \
-        bcftools view {input.vcf} \
-            -S {output.tmp_samples} \
-        | bcftools reheader  \
-            -s {output.tmp_samples2} \
-        | bcftools view \
-            --min-ac 1 \
-            -Oz \
-        > {output.vcf} \
-        """
-
-# ----------------
 
 rule genotype_posteriors:
     """Calculate genotype posterior probabilties. This adds a PP field in the FORMAT column of the VCF for the genotype posteriors.
@@ -83,11 +8,10 @@ rule genotype_posteriors:
     and also optionally from trio information."""
     # Switch input vcf/tbi as needed
     input:
-        # TODO: Generalize the "only_{seq}"
-        #vcf = config["results"] + "genotypes/only_WES/{dataset}.{mode}.chr{chr}.vcf.gz",
-        #tbi = config["results"] + "genotypes/only_WES/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
-        vcf = config["results"] + "genotypes/deduplicated/{dataset}.{mode}.chr{chr}.vcf.gz",
-        tbi = config["results"] + "genotypes/deduplicated/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
+        vcf = config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.vcf.gz",
+        csi = config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
+        # vcf = config["results"] + "genotypes/deduplicated/{dataset}.{mode}.chr{chr}.vcf.gz",
+        # tbi = config["results"] + "genotypes/deduplicated/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
         #ped = config["resources"] + "pedigree/trios.ped",
         #ped = config["resources"] + "pedigree/plink.ped",
     output:
@@ -106,6 +30,8 @@ rule genotype_posteriors:
 rule genotype_filtration:
     """Filter genotypes by GQ.
     This adds the filter tag if fails and sets "./." as new genotype."""
+    wildcard_constraints:
+        chr = "[^X|Y|MT]"  # Only autosomes
     input:
         vcf = config["results"] + "genotypes/posteriors/{dataset}.{mode}.chr{chr}.vcf.gz",
         tbi = config["results"] + "genotypes/posteriors/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
@@ -113,7 +39,7 @@ rule genotype_filtration:
         vcf = config["results"] + "genotypes/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
     params:
         GQ = config["filtering"]["GQ"],
-        DP = 5,
+        DP = 5,  # I wonder if there is a better way to go about this than just removing these
     threads: 1
     resources: nodes = 1
     conda: "../envs/gatk.yaml"
@@ -126,21 +52,27 @@ rule genotype_filtration:
             --genotype-filter-expression "DP < {params.DP}" \
             --set-filtered-genotype-to-no-call \
             -O {output.vcf}"""
+use rule genotype_filtration as genotype_filtration_skipping_refinement with:
+    wildcard_constraints:
+        chr = "X|Y|MT"  # Only non-autosomes
+    input:
+        vcf = config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.vcf.gz",
+        tbi = config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
+
 
 rule genotype_passing:
     """Remove variants that don't have a low alternate allele frequency.
     A min_AC of 1 is necessary to remove ACs that were set to 0 during genotype refinement."""
-    # wildcard_constraints:
+    wildcard_constraints:
     #     #subset = "[^founders2_MAF1|common_between_founding_cohorts2|founding_cohorts1_1|founding_cohorts1_2]"
-    #     subset = "all2"
+        #subset = "[^AMP|GBS|WES|WGS|dedup|temp|left_join]"
+        subset = "all|founders|founders24"  # TODO: Generalize this to take anything that is not already used by another rule
     input:
-        #vcf = config["results"] + "genotypes/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
         vcf = config["results"] + "genotypes/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
-        #subpop = config["subpop"],
         subpop = lambda wildcards: branch(
             True if "all" not in wildcards.subset else False,
             #then = config["subpop"],
-            then = config["resources"] + f"subpop/{wildcards.subset}.list",
+            then = config["resources"] + f"subpop/{wildcards.subset}.libraries.list",
         )
     output:
         bcf = config["results"] + "genotypes/pass/{dataset}.{subset}.{mode}.chr{chr}.bcf",
@@ -152,20 +84,7 @@ rule genotype_passing:
         subset_samples = lambda wildcards, input: "" if "all" in wildcards.subset else f"-S {input.subpop}",
     threads: 1
     resources: nodes = 1
-
     # -e 'F_MISSING > 0.1' \
-    # shell: """
-    #     bcftools view {input.vcf} \
-    #         {params.subset_samples} \
-    #         -Ou \
-    #     | bcftools view \
-    #         --min-af {params.min_AF} \
-    #         --max-af {params.max_AF} \
-    #         --min-ac {params.min_AC} \
-    #         -e 'F_MISSING>0.2' \
-    #         -Ob \
-    #         -o {output.bcf} \
-    #     """
     shell: """
         bcftools view {input.vcf} \
             {params.subset_samples} \
@@ -177,6 +96,31 @@ rule genotype_passing:
             -Ob \
             -o {output.bcf} \
         """
+
+# TODO: It would be nice for this to generally apply to n-datasets
+rule left_join_VCFs:
+    """Merge VCF datasets, keeping additional samples for an individual from left dataset only if in both."""
+    input:
+        vcf1 = config["results"] + "genotypes/pass/{dataset1}.all.{mode}.chr{chr}.bcf",
+        csi1 = config["results"] + "genotypes/pass/{dataset1}.all.{mode}.chr{chr}.bcf.csi",
+        vcf2 = config["results"] + "genotypes/pass/{dataset2}.all.{mode}.chr{chr}.bcf",
+        csi2 = config["results"] + "genotypes/pass/{dataset2}.all.{mode}.chr{chr}.bcf.csi",
+    params:
+        regions = config["results"] + "genotypes/pass/{dataset1}.all.{mode}.chr{chr}.regions.tsv",
+    output:
+        temp = temp(config["results"] + "genotypes/pass/{dataset1}+{dataset2}.temp.{mode}.chr{chr}.bcf"),
+        vcf = config["results"] + "genotypes/pass/{dataset1}+{dataset2}_left_join.all.{mode}.chr{chr}.bcf",
+    shell: """
+        bcftools view {input.vcf1} -H | cut -f 1,2 > {params.regions};
+        bcftools merge {input.vcf1} {input.vcf2} \
+            --force-samples \
+            -R {params.regions} \
+            -Ob \
+        > {output.temp};
+        bcftools view {output.temp} \
+            -S <(bcftools query -l {output.temp} | grep -v -F '^2:') \
+        > {output.vcf};
+    """
 
 rule prune_LD:
     """Remove SNVs with high LD."""

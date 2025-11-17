@@ -1,5 +1,28 @@
 """Rules related to variant calling of SNVs."""
 
+
+rule chromosome_windows:
+    """Create sliding windows for chromosomes."""
+    input:
+        fai = config["ref_fasta"] + ".fai",
+    output:
+        windows = config["resources"] + "ref_fna/contig_intervals.tsv",
+    params:
+        window_size = 50_000_000,
+    conda: "../envs/common.yaml"
+    shell: """
+        awk -v window={params.window_size} '{{ \
+            chr=$1; \
+            len=$2; \
+            for (start=1; start<len; start+=window) {{ \
+                end=start+window-1; \
+                if (end>len) end=len; \
+                print chr"\\t"start"\\t"end; \
+            }} \
+        }}' {input.fai} \
+        > {output.windows} \
+        """
+
 ## Variant calling
 
 # rule variant_calling_bcftools:
@@ -24,6 +47,38 @@ rule variant_calling_freebayes:
             -r {wildcards.chr} \
         """
 
+# def ploidy(indiv, chr):
+#     test = 2
+#     match test:
+#         case "2":
+#             return 2
+#     return 2
+
+def ploidy(indiv, chrom):
+    """Find the ploidy for the given pair of individual and chromosome."""
+    sex = demographics.filter(pl.col("Id") == indiv)["Sex"].item()
+    match chrom:
+        case "X":
+            match sex:
+                case "M":
+                    return 1
+                case "F":
+                    return 2
+                case _:
+                    return 2 #4  # Default to diploid
+        case "Y":
+            match sex:
+                case "M":
+                    return 1
+                case "F":
+                    return 0
+                case _:
+                    return 1 #5  # Default to haploid
+        case "MT":
+            return 1
+        case _:
+            print(f"WARNING: {indiv} is of unknown sex.")
+            return 2 #3  # Autosomes are assumed to be diploid
 rule call_variants:
     """Call variants from a single chromosome to make VCF file.
     Verify that rule is grouping by the appropriate field, using library."""
@@ -49,6 +104,7 @@ rule call_variants:
         ),
     params:
         bams = lambda wildcards, input: list(map(lambda bam: "-I " + bam, input.bams)),
+        ploidy = lambda wildcards: ploidy(wildcards.indiv, wildcards.chr),
     output:
         vcf = config["results"] + "gvcf/{batch}/{seq}{indiv}_{library}.chr{chr}.g.vcf.gz",
         #tbi = config["results"] + "gvcf/{chr}/{seq}{indiv}_{library}.chr{chr}.g.vcf.gz.tbi",
@@ -65,9 +121,11 @@ rule call_variants:
             -O {output.vcf} \
             -ERC GVCF \
             --native-pair-hmm-threads {threads} \
+            --sample-ploidy {params.ploidy} \
             2> {log} \
         """
 
+# Note: Not used by main workflow
 rule call_variants_merge_chromosomes:
     """Merge called variants from single chromosomes to make VCF file."""
     wildcard_constraints:
@@ -83,7 +141,6 @@ rule call_variants_merge_chromosomes:
             library = wildcards.library),
     output:
         vcf = config["results"] + "gvcf/{batch}/{seq}{indiv}_{library}.g.vcf.gz",
-        #tbi = config["results"] + "gvcf/{seq}{indiv}_{library}.g.vcf.gz.tbi",
     conda: "../envs/common.yaml"
     threads: 1
     resources: nodes = 1
@@ -187,16 +244,19 @@ rule consolidate:
 #             -L {wildcards.contig} \
 #         """
 
+
 ## Jointly call variants
 rule joint_call_cohort:
     """Use GenomicsDB to jointly call a VCF file."""
+    # wildcard_constraints:
+    #     contig = r"[^XYMT]+",  # Excludes non-autosomes
     input:
         ref = config["ref_fasta"],
         # Note: The actual text file isn't what is required, but the datastore directory.
         # This .txt file is, however, is created only after the datastore has finished being built.
         db = config["results"] + "db/{dataset}/completed/{contig}.txt",
     output:
-        vcf = config["results"] + "joint_call/polyallelic/{dataset}.chr{contig}.vcf.gz",
+        vcf = protected(config["results"] + "joint_call/polyallelic/{dataset}.chr{contig}:{start}-{end}.vcf.gz"),
         #tbi = config["results"] + "joint_call/polyallelic/{dataset}.chr{chr}.vcf.gz.tbi",
     params:
         db = config["results"] + "db/{dataset}/{contig}",
@@ -208,7 +268,30 @@ rule joint_call_cohort:
             -R {input.ref} \
             -V gendb://{params.db} \
             -O {output.vcf} \
-            -L {wildcards.contig} \
+            -L {wildcards.contig}:{wildcards.start}-{wildcards.end} \
+        """
+
+rule concat_intervals_of_chromosome:
+    """Merge called variants from intervals of a single chromosome to make VCF file."""
+    wildcard_constraints:
+        indiv_id = r"[A-Za-z0-9]+",
+        seq = r"WGS|WES|GBS|AMP",
+        run = r"[A-Za-z0-9_-]+",
+    input:
+        vcfs = lambda wildcards: expand(config["results"] + "joint_call/polyallelic/{dataset}.chr{interval}.vcf.gz",
+            dataset=wildcards.dataset,
+            interval=intervals.filter(
+                pl.col("contig") == wildcards.chr
+            )["interval"].to_list()),
+    output:
+        vcf = config["results"] + "joint_call/polyallelic/{dataset}.chr{chr}.vcf.gz",
+    conda: "../envs/common.yaml"
+    threads: 1
+    resources: nodes = 1
+    shell: """
+        bcftools concat {input.vcfs} \
+            -o {output.vcf} \
+            -Oz \
         """
 
 rule joint_call_cohort_all_sites:
