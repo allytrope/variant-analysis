@@ -1,23 +1,30 @@
 # """Micellaneous rules."""
-# rule bcf_to_vcfgz:
-#     input: bcf = "{path}/{name}.bcf"
-#     output: vcfgz = "{path}/{name}.vcf.gz"
-#     conda: "../envs/common.yaml"
-#     shell: """
-#         bcftools view {input} \
-#             -Oz \
-#             -o {output.vcfgz} \
-#         """
 
-# rule vcfgz_to_bcf:
-#     input: vcfgz = "{path}/{name}.vcf.gz"
-#     output: bcf = "{path}/{name}.bcf"
-#     conda: "../envs/common.yaml"
-#     shell: """
-#         bcftools view {input} \
-#             -Ob \
-#             -o {output.bcf} \
-#         """
+rule samples_names_from_ids:
+    """Create a list of sample names from a list of animals IDs."""
+    input: 
+        runs = config["runs"],
+        indivs = config["resources"] + "subpop/indivs/{subset}.list",
+    output:
+        config["resources"] + "subpop/samples/{subset}.list",
+    run:
+        import polars as pl
+
+        # Read library info
+        libraries = pl.read_csv({input.runs}, separator="\t", columns=["indiv", "seq", "library"],
+            schema_overrides={"indiv": pl.String}).unique()
+
+        indivs = pl.read_csv({input.indivs}, schema_overrides={"column_1": pl.String}, has_header=False
+            ).rename({'column_1': "indiv"})
+
+        indivs.join(libraries, on="indiv").filter(pl.col("seq") == "WGS").with_columns(
+            sample = pl.concat_str([
+                pl.col("seq"),
+                pl.col("indiv"),
+                pl.lit("_"),
+                pl.col("library")
+            ])
+        ).select("sample").write_csv({output.samples})
 
 rule slivar_de_novo:
     input:
@@ -389,7 +396,7 @@ rule download_demographics:
             schema_name="study",
             query_name="Demographics",
             view_name="All Animals",
-            columns="Id,species,species/scientific_name,gender,calculated_status,dam,sire,birth,death",
+            columns="Id,species,species/scientific_name,gender,calculated_status,dam,sire,birth,death,Id/activeGroups/Colony::animal_group",
             # filter_array=[
             #     labkey.query.QueryFilter("species/arc_species_code/common_name/value", "Marmoset", "in")
             # ],
@@ -407,4 +414,5 @@ rule download_demographics:
             "dam": "Dam",
             "sire": "Sire",
             "calculated_status": "Status",
+            "Id/activeGroups/Colony::animal_group": "Colony",
         }).write_csv(wildcards.output, separator='\t')

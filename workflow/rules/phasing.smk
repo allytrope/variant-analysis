@@ -31,7 +31,8 @@ rule genotype_filtration:
     """Filter genotypes by GQ.
     This adds the filter tag if fails and sets "./." as new genotype."""
     wildcard_constraints:
-        chr = "[^X|Y|MT]"  # Only autosomes
+        chr = "[^X|Y|MT]",  # Only autosomes
+        dataset = "[^_]"  # TODO: Even this isn't working
     input:
         vcf = config["results"] + "genotypes/posteriors/{dataset}.{mode}.chr{chr}.vcf.gz",
         tbi = config["results"] + "genotypes/posteriors/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
@@ -63,16 +64,17 @@ use rule genotype_filtration as genotype_filtration_skipping_refinement with:
 rule genotype_passing:
     """Remove variants that don't have a low alternate allele frequency.
     A min_AC of 1 is necessary to remove ACs that were set to 0 during genotype refinement."""
-    wildcard_constraints:
+    # wildcard_constraints:
+    #     subset = "[^_]"
     #     #subset = "[^founders2_MAF1|common_between_founding_cohorts2|founding_cohorts1_1|founding_cohorts1_2]"
-        #subset = "[^AMP|GBS|WES|WGS|dedup|temp|left_join]"
-        subset = "all|founders|founders24"  # TODO: Generalize this to take anything that is not already used by another rule
+    #     #subset = "[^AMP|GBS|WES|WGS|dedup|temp|left_join]"
+    #     #subset = "all|founders|founders24"  # TODO: Generalize this to take anything that is not already used by another rule
     input:
         vcf = config["results"] + "genotypes/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
         subpop = lambda wildcards: branch(
             True if "all" not in wildcards.subset else False,
             #then = config["subpop"],
-            then = config["resources"] + f"subpop/{wildcards.subset}.libraries.list",
+            then = config["resources"] + f"subpop/samples/{wildcards.subset}.list",
         )
     output:
         bcf = config["results"] + "genotypes/pass/{dataset}.{subset}.{mode}.chr{chr}.bcf",
@@ -97,31 +99,6 @@ rule genotype_passing:
             -o {output.bcf} \
         """
 
-# TODO: It would be nice for this to generally apply to n-datasets
-rule left_join_VCFs:
-    """Merge VCF datasets, keeping additional samples for an individual from left dataset only if in both."""
-    input:
-        vcf1 = config["results"] + "genotypes/pass/{dataset1}.all.{mode}.chr{chr}.bcf",
-        csi1 = config["results"] + "genotypes/pass/{dataset1}.all.{mode}.chr{chr}.bcf.csi",
-        vcf2 = config["results"] + "genotypes/pass/{dataset2}.all.{mode}.chr{chr}.bcf",
-        csi2 = config["results"] + "genotypes/pass/{dataset2}.all.{mode}.chr{chr}.bcf.csi",
-    params:
-        regions = config["results"] + "genotypes/pass/{dataset1}.all.{mode}.chr{chr}.regions.tsv",
-    output:
-        temp = temp(config["results"] + "genotypes/pass/{dataset1}+{dataset2}.temp.{mode}.chr{chr}.bcf"),
-        vcf = config["results"] + "genotypes/pass/{dataset1}+{dataset2}_left_join.all.{mode}.chr{chr}.bcf",
-    shell: """
-        bcftools view {input.vcf1} -H | cut -f 1,2 > {params.regions};
-        bcftools merge {input.vcf1} {input.vcf2} \
-            --force-samples \
-            -R {params.regions} \
-            -Ob \
-        > {output.temp};
-        bcftools view {output.temp} \
-            -S <(bcftools query -l {output.temp} | grep -v -F '^2:') \
-        > {output.vcf};
-    """
-
 rule prune_LD:
     """Remove SNVs with high LD."""
     input:
@@ -139,104 +116,6 @@ rule prune_LD:
             -Ob \
             -o {output.bcf} \
         """
-
-rule create_plink_files:
-   """Create PLINK .bed, .bim, and .fam files."""
-    input:
-        bcf = "{path}/{dataset}.{subset}.{mode}.chr{chr}.bcf",
-        demographics = config["resources"] + "pedigree/demographics.tsv",
-    output:
-        bed = "{path}/plink/{dataset}.{subset}.{mode}.chr{chr}.bed",
-        bim = "{path}/plink/{dataset}.{subset}.{mode}.chr{chr}.bim",
-        fam = "{path}/plink/{dataset}.{subset}.{mode}.chr{chr}.fam",
-        update_parents = "{path}/plink/{dataset}.{subset}.{mode}.chr{chr}.update_parents.tsv",
-        update_sex = "{path}/plink/{dataset}.{subset}.{mode}.chr{chr}.update_sex.tsv",
-    params:
-        out_prefix = subpath(output.bed, strip_suffix=".bed"),
-    conda: "../envs/rvtests.yaml"
-    # --chr {wildcards.chr} \
-    shell: """
-        cat {input.demographics} \
-        | csvtk cut -f Id,Sire,Dam -t \
-        | awk 'BEGIN {{FS="\t"; OFS="\t"}} NR!=1 {{print "F1",$0}} NR==1 {{print "Family",$0}}' \
-        | sed 's/\t\t/\t0\t/g' \
-        | sed 's/\t$/\t0/g' \
-        > {output.update_parents}; \
-
-        cat {input.demographics} \
-        | csvtk cut -f Id,Sex -t \
-        | awk 'BEGIN {{FS="\t"; OFS="\t"}} NR!=1 {{print "F1",$0}} NR==1 {{print "Family",$0}}' \
-        | sed 's/Male/1/g;s/Female/2/g;s/Unknown/0/g' \
-        > {output.update_sex}; \
-
-        plink \
-            --bcf {input.bcf} \
-            --const-fid F1 \
-            --recode \
-            --make-bed \
-            --out {params.out_prefix} \
-            --update-parents {output.update_parents} \
-            --update-sex {output.update_sex} \
-            --allow-extra-chr \
-        """
-        
-
-
-# Minor differences
-rule create_autosomal_plink_files:
-   """Create PLINK .bed, .bim, and .fam files."""
-    input:
-        bcf = "{path}/{dataset}.{subset}.{mode}.autosomal.bcf",
-        demographics = config["resources"] + "pedigree/demographics.tsv",
-    output:
-        bed = "{path}/plink/{dataset}.{subset}.{mode}.autosomal.bed",
-        bim = "{path}/plink/{dataset}.{subset}.{mode}.autosomal.bim",
-        fam = "{path}/plink/{dataset}.{subset}.{mode}.autosomal.fam",
-        update_parents = "{path}/plink/{dataset}.{subset}.{mode}.autosomal.update_parents.tsv",
-        update_sex = "{path}/plink/{dataset}.{subset}.{mode}.autosomal.update_sex.tsv",
-    params:
-        out_prefix = subpath(output.bed, strip_suffix=".bed"),
-    conda: "../envs/rvtests.yaml"
-    shell: """
-        cat {input.demographics} \
-        | csvtk cut -f Id,Sire,Dam -t \
-        | awk 'BEGIN {{FS="\t"; OFS="\t"}} NR!=1 {{print "F1",$0}} NR==1 {{print "Family",$0}}' \
-        | sed 's/\t\t/\t0\t/g' \
-        | sed 's/\t$/\t0/g' \
-        > {output.update_parents}; \
-
-        cat {input.demographics} \
-        | csvtk cut -f Id,Sex -t \
-        | awk 'BEGIN {{FS="\t"; OFS="\t"}} NR!=1 {{print "F1",$0}} NR==1 {{print "Family",$0}}' \
-        | sed 's/Male/1/g;s/Female/2/g;s/Unknown/0/g' \
-        > {output.update_sex}; \
-
-        plink \
-            --bcf {input.bcf} \
-            --const-fid F1 \
-            --recode \
-            --make-bed \
-            --out {params.out_prefix} \
-            --update-parents {output.update_parents} \
-            --update-sex {output.update_sex} \
-            --allow-extra-chr \
-        """
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 # rule exonic_regions_only_of_genotype_passing:
 #     """Subset to WES regions determined by mosdepth from genotype passing VCF."""

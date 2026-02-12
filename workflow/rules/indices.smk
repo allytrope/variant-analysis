@@ -1,4 +1,4 @@
-"""Rules for creating various types of index files."""
+"""Rules for creating various types of index files as well as for compressing and decompressing files."""
 
 rule index_ref:
     """Create BWA index files for reference genome."""
@@ -6,23 +6,25 @@ rule index_ref:
     output: multiext(config["ref_fasta"], ".amb", ".ann", ".bwt", ".pac", ".sa"),
     threads: 1
     resources: nodes = 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: "bwa index {input}"
 
 rule fai_index:
     """Create .fai index for .fna.gz file. Must be bgzipped."""
-    wildcard_constraints: fna = "fasta|fna|fa"
-    input: "{path}/{name}.{fna}.gz"
-    output: "{path}/{name}.{fna}.gz" + ".fai",
-    conda: "../envs/bio.yaml"
+    wildcard_constraints:
+        fna = "fasta|fna|fa",
+        optional_suffix = ".gz|"
+    input: "{path}/{name}.{fna}{optional_suffix}",
+    output: "{path}/{name}.{fna}{optional_suffix}" + ".fai",
+    conda: "../envs/common.yaml"
     shell: "samtools faidx {input}"
 
 rule gzi_index:
     """Create .gzi index for .fna.gz file. Must be bgzipped."""
-    wildcard_constraints: fna = "fasta|fna|fa"
-    input: "{path}/{name}.{fna}.gz"
+    wildcard_constraints: fna = "fasta|fna|fa",
+    input: "{path}/{name}.{fna}.gz",
     output: "{path}/{name}.{fna}.gz" + ".gzi",
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         bgzip {input} \
             -r \
@@ -36,14 +38,25 @@ rule gzi_index:
 #     wildcard_constraints: fna = "fasta|fna|fa"
 #     input: "{path}/{name}.{fna}.gz"
 #     output: "{path}/faidx/{name}.{fna}.gz" + ".fai",
-#     conda: "../envs/bio.yaml"
+#     conda: "../envs/common.yaml"
 #     shell: "faidx {input}"
+
+# rule create_ref_dict:
+#     """Create .dict file for compressed reference genome."""
+#     #wildcard_constraints: fasta = "fasta|fna|fa"
+#     input: fasta = config["ref_fasta"],
+#     output: dict = ".".join(config["ref_fasta"].split(".")[:-2]) + ".dict",  # Replaces the ".fna.gz" ending with ".dict"
+#     threads: 1
+#     resources: nodes = 1
+#     conda: "../envs/gatk.yaml"
+#     shell: "gatk CreateSequenceDictionary \
+#             -R {input.fasta}"
 
 rule create_ref_dict:
     """Create .dict file for compressed reference genome."""
     #wildcard_constraints: fasta = "fasta|fna|fa"
-    input: fasta = config["ref_fasta"],
-    output: dict = ".".join(config["ref_fasta"].split(".")[:-2]) + ".dict",  # Replaces the ".fna.gz" ending with ".dict"
+    input: fasta = config["resources"] + "{path}/{name}.fa.gz",
+    output: dict = config["resources"] + "{path}/{name}.dict",
     threads: 1
     resources: nodes = 1
     conda: "../envs/gatk.yaml"
@@ -67,7 +80,7 @@ rule bai_index:
     output: "{path}/{name}.bam.bai",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: "samtools index {input}"
 
 rule tbi_index:
@@ -76,7 +89,7 @@ rule tbi_index:
     output: "{path}/{name}.vcf.gz.tbi",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: "bcftools index {input} \
                 --tbi"
 
@@ -88,6 +101,6 @@ rule csi_index:
     output: "{path}/{name}.{ext}.csi",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: "bcftools index {input} \
                 --csi"
