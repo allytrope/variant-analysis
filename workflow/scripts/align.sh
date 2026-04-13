@@ -19,7 +19,7 @@ echo post_pu;
 echo "$SAMPLE";
 echo '@RG\tSM:'$SAMPLE'\tLB:'$SAMPLE'\t'$ID'\t'$PU'.'$SAMPLE'\tPL:ILLUMINA';
 
-bwa mem $REF $READ1 $READ2 \
+bwa-mem2 $REF $READ1 $READ2 \
     -t $THREADS \
     -R '@RG\tSM:'$SAMPLE'\tLB:'$LIBRARY'\t'$ID'\t'$PU'.'$SAMPLE'\tPL:ILLUMINA' \
 | samtools view -Sb - > $OUTPUT

@@ -6,15 +6,15 @@ rule samples_names_from_ids:
         runs = config["runs"],
         indivs = config["resources"] + "subpop/indivs/{subset}.list",
     output:
-        config["resources"] + "subpop/samples/{subset}.list",
+        samples = config["resources"] + "subpop/samples/{subset}.list",
     run:
         import polars as pl
 
         # Read library info
-        libraries = pl.read_csv({input.runs}, separator="\t", columns=["indiv", "seq", "library"],
+        libraries = pl.read_csv(input.runs, separator="\t", columns=["indiv", "seq", "library"],
             schema_overrides={"indiv": pl.String}).unique()
 
-        indivs = pl.read_csv({input.indivs}, schema_overrides={"column_1": pl.String}, has_header=False
+        indivs = pl.read_csv(input.indivs, schema_overrides={"column_1": pl.String}, has_header=False
             ).rename({'column_1': "indiv"})
 
         indivs.join(libraries, on="indiv").filter(pl.col("seq") == "WGS").with_columns(
@@ -24,7 +24,7 @@ rule samples_names_from_ids:
                 pl.lit("_"),
                 pl.col("library")
             ])
-        ).select("sample").write_csv({output.samples})
+        ).select("sample").sort("sample").write_csv(output.samples, include_header=False)
 
 rule slivar_de_novo:
     input:
@@ -52,10 +52,7 @@ rule vep_slivar_trio:
     wildcard_constraints:
         dam="[0-9]+"
     input:
-        bcfs = lambda wildcards: expand(config["results"] + "slivar_trios/de_novo/{child}_{sire}_{dam}.chr{chr}.bcf",
-            child=wildcards.child,
-            sire=wildcards.sire,
-            dam=wildcards.dam,
+        bcfs = expand(config["results"] + "slivar_trios/de_novo/{{child}}_{{sire}}_{{dam}}.chr{chr}.bcf",
             chr=[str(num) for num in list(range(1,21))]),
         fasta = config["ref_fasta"],
         gtf = config["gtf3"],
@@ -146,10 +143,7 @@ rule list_autosomes:
 rule concat_chromosomes:
     """Concatenate chromosomes."""
     input:
-        vcfs = lambda wildcards: expand(config["results"] + "{path}/{dataset}.{mode}.chr{chr}.vcf.gz",
-            path=wildcards.path,
-            dataset=wildcards.dataset,
-            mode=wildcards.mode,
+        vcfs = expand(config["results"] + "{{path}}/{{dataset}}.{{mode}}.chr{chr}.vcf.gz",
             chr=CHROMOSOMES),
         chromosomes = config["resources"] + "ref_fna/chromosomes.list",
     output:
@@ -168,10 +162,8 @@ rule bcfs_to_autosomal_bcf:
     wildcard_constraints:
         ext = "bcf",
     input:
-        bcfs = lambda wildcards: expand(config["results"] + "{path}.chr{chr}.{ext}",
-            path=wildcards.path,
-            chr=[chrom for chrom in CHROMOSOMES if chrom not in ["X", "Y", "MT"]],
-            ext=wildcards.ext),
+        bcfs = expand(config["results"] + "{{path}}.chr{chr}.{{ext}}",
+            chr=AUTOSOMES),
         chromosomes = config["resources"] + "ref_fna/chromosomes.list",
     output:
         bcf = config["results"] + "{path}.autosomal.{ext}",

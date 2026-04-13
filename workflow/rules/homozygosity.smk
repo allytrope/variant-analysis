@@ -24,19 +24,24 @@ rule bcftools_ROH:
         # csi = config["results"] + "haplotypes/SHAPEIT5_WGS/{dataset}.{mode}.chr{chr}.bcf.csi",
         #bcf = config["results"] + "haplotypes/SHAPEIT5_{seq}/{dataset}.{mode}.chr{chr}.bcf",
         #csi = config["results"] + "haplotypes/SHAPEIT5_{seq}/{dataset}.{mode}.chr{chr}.bcf.csi",
-        bcf = config["results"] + "genotypes/pass/{dataset}.common_between_founding_cohorts2.SNP.chr{chr}.bcf",
-        csi = config["results"] + "genotypes/pass/{dataset}.common_between_founding_cohorts2.SNP.chr{chr}.bcf.csi",
+        # bcf = config["results"] + "genotypes/pass/{dataset}.common_between_founding_cohorts2.SNP.chr{chr}.bcf",
+        # csi = config["results"] + "genotypes/pass/{dataset}.common_between_founding_cohorts2.SNP.chr{chr}.bcf.csi",
+        bcf = config["results"] + "genotypes/pass/{dataset}.{subset}.SNP.chr{chr}.bcf",
+        csi = config["results"] + "genotypes/pass/{dataset}.{subset}.SNP.chr{chr}.bcf.csi",
         #csi = config["results"] + "genotypes/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
         #bed = config["results"] + "coverage/common_WES_0.5_loci.bed",
     output:
         #roh = config["results"] + "roh/bcftools/{dataset}.{mode}.chr{chr}.roh",
-        roh = config["results"] + "roh/bcftools/{dataset}.common_between_founding_cohorts2.chr{chr}.both.roh",
+        roh = config["results"] + "roh/bcftools/{dataset}.{subset}.chr{chr}.both.roh",
     #-R {input.bed} \
     #-G 30 \
     params:
         #rec_rate = 0.00433  # For rhesus
         #rec_rate = 0.003  # From rhesus WES discordance
         rec_rate = .00000043
+    resources:
+        nodes = 1,
+        mem_mb = 160_000,
     shell: """
         bcftools view {input.bcf} \
             --min-ac 1 \
@@ -118,9 +123,19 @@ rule scikit_allel_diversity:
 rule heterozygosity_from_gvcf:
     """Count up number of heterozygous sites from gVCF."""
     input:
-        gvcf = config["results"] + "gvcf/{sample}.g.vcf.gz",
+        #gvcf = config["results"] + "gvcf/{sample}.g.vcf.gz",
+        gvcf = lambda wildcards: expand(config["results"] + "gvcf/{sample}.chr{chr}.g.vcf.gz",
+            sample=collect_samples(
+                fmt="{batch}/{seq}{indiv}_{library}",
+                col="library",
+                val=wildcards.library
+            ),
+            chr=wildcards.chr
+        )
     output:
-        het = config["results"] + "heterozygosity/gvcf_counts/{sample}.het",
+        het = config["results"] + "heterozygosity/gvcf_counts/{batch}/{seq}{indiv}_{library}.chr{chr}.het",
+    resources:
+        mem_mb = 3000,
     shell: """
         bcftools view {input.gvcf} \
             -e 'GQ<30' \
@@ -141,19 +156,41 @@ rule heterozygosity_from_gvcf:
         | awk \
             'BEGIN {{FS="\t";OFS="\t"; print "SAMPLE","HET","TOTAL"}} \
             {{if ($2 == "hom") HOM+=$1; else if ($2 == "het") HET+=$1; TOTAL+=$1}} \
-            END {{print "{wildcards.sample}",HET,TOTAL}}' \
+            END {{print "{wildcards.seq}{wildcards.indiv}_{wildcards.library}",HET,TOTAL}}' \
         > {output}
+        """
+
+rule heterozygosity_merge_chroms:
+    """Merge the counts of chromosomes for the same library."""
+    input:
+        het = lambda wildcards: expand(config["results"] + "heterozygosity/gvcf_counts/{sample}.chr{chr}.het",
+            sample=collect_samples(
+                fmt="{batch}/{seq}{indiv}_{library}",
+                col="library",
+                val=wildcards.library
+            ),
+            chr=AUTOSOMES
+        )
+    output:
+        config["results"] + "heterozygosity/{batch}/{seq}{indiv}_{library}.autosomes.het",
+    shell: """
+        echo "SAMPLE\tHET\tTOTAL" > {output};
+        cat {input.het} \
+        | grep -v '^SAMPLE' \
+        | awk '{{SAMPLE=$1; HET+=$2; TOTAL+=$3}} END {{print SAMPLE"\t"HET"\t"TOTAL}}' \
+        >> {output}
         """
 
 rule spawn_heterozygosity_jobs:
     """Spawn jobs for the rule `heterozygosity_from_gvcf`."""
     input:
-        het = expand(config["results"] + "heterozygosity/gvcf_counts/{sample}.het",
-            sample=collect_samples(fmt="{seq}{indiv}_{library}")
+        het = expand(config["results"] + "heterozygosity/gvcf_counts/{sample}.autosomes.het",
+            sample=collect_samples(fmt="{batch}/{seq}{indiv}_{library}")
         )
     output:
         config["results"] + "heterozygosity/gvcf_counts.het",
     shell: """
         echo "SAMPLE\tHET\tTOTAL" > {output};
-        cat {input.het} | grep -v '^SAMPLE' >> {output}
+        cat {input.het} | grep -v '^SAMPLE' | sort >> {output}
         """
+

@@ -20,95 +20,6 @@ rule make_scaffold:
             --out {output.scaffold} \
         """
 
-# rule shapeit4_imputation_ref:
-#     """Haplotype estimation and imputation for the reference VCF, that is to say, WGS samples only."""
-#     input:
-#         vcf = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz",
-#         csi = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz.csi",
-#         #scaffold = config["results"] + "haplotypes/scaffolds/{dataset}.{mode}.chr{chr}.vcf.gz",
-#         #scaffold_csi = config["results"] + "haplotypes/scaffolds/{dataset}.{mode}.chr{chr}.vcf.gz.csi",
-#     output:
-#         phased = config["results"] + "haplotypes/SHAPEIT4/{dataset}.{mode}.chr{chr}.vcf.gz",
-#     # When using SHAPIT4.1 or greater, --map not required (though surely still helpful).
-#     # chr appears to still be mandatory even if there is only one chromosome in file.
-#     params:
-#         PS = 0.0002,  # 0.0001 is recommended value by SHAPEIT4
-#     log: config["results"] + "haplotypes/SHAPEIT4/log/12_Indian_12_Chinese.chr{chr}.log",
-#     threads: 8
-#     resources: nodes = 8
-#     conda: "../envs/shapeit4.yaml"
-#     shell: """
-#         shapeit4 \
-#             --input {input.vcf} \
-#             --region {wildcards.chr} \
-#             --sequencing \
-#             --use-PS {params.PS} \
-#             --output {output.phased} \
-#             --log {log} \
-#             --thread {threads} \
-#         """
-
-# rule shapeit4_imputation_query:
-#     """Haplotype estimation and imputation."""
-#     input:
-#         vcf = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz",
-#         csi = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz.csi",
-#         #map = config["resources"] + "genetic_map/chr{chr}.cM.genetic_map",
-#         scaffold = config["results"] + "haplotypes/scaffolds/{dataset}.{mode}.chr{chr}.vcf.gz",
-#         scaffold_csi = config["results"] + "haplotypes/scaffolds/{dataset}.{mode}.chr{chr}.vcf.gz.csi",
-#     output:
-#         phased = config["results"] + "haplotypes/SHAPEIT4_{seq}/{dataset}.{mode}.chr{chr}.vcf.gz",
-#     # When using SHAPIT4.1 or greater, --map not required (though surely still helpful).
-#     # chr appears to still be mandatory even if there is only one chromosome in file.
-#     params:
-#         PS = 0.0002,  # 0.0001 is recommended value by SHAPEIT4
-#     log: config["results"] + "haplotypes/SHAPEIT4_new/log/{dataset}.{mode}.chr{chr}.log",
-#     threads: 8
-#     resources: nodes = 8
-#     conda: "../envs/shapeit4.yaml"
-#     shell: """
-#         shapeit4 \
-#             --input {input.vcf} \
-#             --scaffold {input.scaffold} \
-#             --region {wildcards.chr} \
-#             --sequencing \
-#             --use-PS {params.PS} \
-#             --output {output.phased} \
-#             --log {log} \
-#             --thread {threads} \
-#         """
-
-# rule shapeit4_imputation_ref_vcf:
-#     """Haplotype estimation and imputation for the reference VCF used for determining admixture."""
-#     input:
-#         #vcf = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz",
-#         vcf = "/master/abagwell/variant-analysis/resources/rhesus/ref_vcf/12_Indian_12_Chinese.vcf.gz",
-#         #csi = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz.csi",
-#         csi = "/master/abagwell/variant-analysis/resources/rhesus/ref_vcf/12_Indian_12_Chinese.vcf.gz.csi",
-#         #scaffold = config["results"] + "haplotypes/scaffolds/{dataset}.{mode}.chr{chr}.vcf.gz",
-#         #scaffold_csi = config["results"] + "haplotypes/scaffolds/{dataset}.{mode}.chr{chr}.vcf.gz.csi",
-#     output:
-#         #phased = config["results"] + "haplotypes/SHAPEIT4/with_scaffold/{dataset}.{mode}.chr{chr}.vcf.gz",
-#         phased = "/master/abagwell/variant-analysis/resources/rhesus/ref_vcf/12_Indian_12_Chinese.phased.chr{chr}.vcf.gz",
-#     # When using SHAPIT4.1 or greater, --map not required (though surely still helpful).
-#     # chr appears to still be mandatory even if there is only one chromosome in file.
-#     params:
-#         PS = 0.0001,  # Recommended value by SHAPEIT4
-#     log: config["results"] + "haplotypes/SHAPEIT4/log/12_Indian_12_Chinese.chr{chr}.log",
-#     threads: 8
-#     resources: nodes = 8
-#     conda: "../envs/shapeit4.yaml"
-#     shell: """
-#         shapeit4 \
-#             --input {input.vcf} \
-#             --region {wildcards.chr} \
-#             --sequencing \
-#             --use-PS {params.PS} \
-#             --output {output.phased} \
-#             --log {log} \
-#             --thread {threads} \
-#         """
-
 rule add_annotations:
     """Adds FORMAT annotations that were removed during processing with SHAPEIT4."""
     input: 
@@ -118,7 +29,7 @@ rule add_annotations:
         annotated = config["results"] + "haplotypes/SHAPEIT4_{seq}/annotated/{dataset}.{mode}.chr{chr}.vcf.gz",
     threads: 1 
     resources: nodes = 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         bcftools annotate {input.vcf} \
             -a {input.phased} \
@@ -154,25 +65,23 @@ rule add_annotations:
 #         """
 
 
-
-rule shapeit5_imputation_no_ref:
+rule shapeit5_imputation:
     """Haplotype estimation and imputation using pedigree."""
     input:
-        # vcf = config["results"] + "genotypes/pass/WES/{dataset}.{mode}.chr{chr}.vcf.gz",
-        # tbi = config["results"] + "genotypes/pass/WES/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
         bcf = config["results"] + "genotypes/pass/{dataset}.{subset}.{mode}.chr{chr}.bcf",
         bcf_csi = config["results"] + "genotypes/pass/{dataset}.{subset}.{mode}.chr{chr}.bcf.csi",
         #fam = config["results"] + "haplotypes/pedigree/{dataset}.duos_and_trios.fam",
-        fam = config["results"] + "pedigree/all_individuals.fam"
-        #ref = config["results"] + "haplotypes/SHAPEIT5_WGS/{dataset}.{mode}.chr{chr}.bcf",
-        #ref_csi = config["results"] + "haplotypes/SHAPEIT5_WGS/{dataset}.{mode}.chr{chr}.bcf.csi",
+        # TODO: Make sure that this has correct sample names
+        #fam = config["results"] + "pedigree/all_individuals.fam"
         #map = config["resources"] + "genetic_map/chr{chr}.cM.genetic_map",
     output:
         phased = config["results"] + "haplotypes/SHAPEIT5/{dataset}.{subset}.{mode}.chr{chr}.bcf",
     log:
         config["results"] + "haplotypes/SHAPEIT5/log/{dataset}.{subset}.{mode}.chr{chr}.log",
     threads: 8
-    resources: nodes = 8
+    resources:
+        nodes = 8,
+        mem_mb = 360_000, #30_000,
     conda: "../envs/shapeit5.yaml"
     #--pedigree {input.fam} \
     #--reference {input.ref} \
@@ -183,11 +92,10 @@ rule shapeit5_imputation_no_ref:
             --output {output.phased} \
             --log {log} \
             --thread {threads} \
-            --pedigree {input.fam} \
+            --filter-maf 0.001 \
         """
 
-
-
+# Alternate SHAPEIT5 implementations when using WGS to impute WES
 
 rule shapeit5_imputation_ref:
     """Haplotype estimation and imputation of reference VCF, that is to say, WGS samples."""
@@ -216,7 +124,7 @@ rule shapeit5_imputation_ref:
         """
 #            --map {input.map} \
 
-rule shapeit5_imputation:
+rule shapeit5_imputation_with_ref:
     """Haplotype estimation and imputation of WES samples using the WGS imputation as the reference VCF."""
     input:
         # vcf = config["results"] + "genotypes/pass/WES/{dataset}.{mode}.chr{chr}.vcf.gz",
@@ -255,7 +163,7 @@ rule subset_WGS_to_exome:
         dir = config["results"] + "haplotypes/SHAPEIT5_merged/isec/{dataset}_chr{chr}_{mode}",
     output:
         bcf = config["results"] + "haplotypes/SHAPEIT5_merged/isec/{dataset}_chr{chr}_{mode}/0003.bcf",
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         bcftools isec {input.bcf_WES} {input.bcf_WGS} \
             -Ob \
@@ -269,7 +177,7 @@ rule merge_imputed:
         bcf_WGS_exome = config["results"] + "haplotypes/SHAPEIT5_merged/isec/{dataset}_chr{chr}_{mode}/0003.bcf",
     output:
         bcf = config["results"] + "haplotypes/SHAPEIT5_merged/{dataset}.{mode}.chr{chr}.bcf",
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         bcftools merge {input.bcf_WES} {input.bcf_WGS_exome} \
             -Ob \
@@ -277,24 +185,24 @@ rule merge_imputed:
         """
 
 
-
 ## Using Beagle
-
 rule beagle_imputation:
     """Impute using Beagle."""
     input:
-        vcf = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz",
+        # vcf = config["results"] + "haplotypes/whatshap/all/{dataset}.{subset}.{mode}.chr{chr}.vcf.gz",
+        vcf = config["results"] + "genotypes/pass/{dataset}.{subset}.{mode}.chr{chr}.vcf.gz",
+        tbi = config["results"] + "genotypes/pass/{dataset}.{subset}.{mode}.chr{chr}.vcf.gz.tbi",
     output:
-        vcf = config["results"] + "haplotypes/Beagle5/{dataset}.{mode}.chr{chr}.vcf.gz",
+        vcf = config["results"] + "haplotypes/Beagle4/{dataset}.{subset}.{mode}.chr{chr}.vcf.gz",
     # log:
     #     log = config["results"] + "haplotypes/Beagle5/{dataset}.{mode}.chr{chr}.vcf.gz.log",
     params:
-        jar = "/master/abagwell/tools/beagle.22Jul22.46e.jar",
+        #jar = "/master/abagwell/tools/beagle.22Jul22.46e.jar",
+        jar = "/master/abagwell/tools/beagle.27Jan18.7e1.jar", # v4.1
         out = lambda wildcards, output: ".".join(output.vcf.split(".")[:-2]),
     threads: 24
     resources: nodes = 24
-    # Beagle5 not available in conda
-    conda: "../envs/gatk.yaml"  # Using this enviornment because it already has Java8
+    conda: "../envs/gatk.yaml"  # Using this enviornment because it already has Java8, which is needed
     shell: """
         java -Xmx50g -jar {params.jar} \
             gt={input.vcf} \
@@ -335,33 +243,33 @@ rule beagle_imputation:
 #             --thread {threads} \
 #         """
 
-rule shapeit5_WGS_imputation:
-    """Haplotype estimation and imputation."""
-    input:
-        vcf = config["results"] + "genotypes/pass/WGS/{dataset}.{mode}.chr{chr}.vcf.gz",
-        csi = config["results"] + "genotypes/pass/WGS/{dataset}.{mode}.chr{chr}.vcf.gz.csi",
-        #vcf = config["results"] + "genotypes/pass/WGS/{dataset}.{mode}.chr{chr}.vcf.gz",
-        #csi = config["results"] + "genotypes/pass/WGS/{dataset}.{mode}.chr{chr}.vcf.gz.csi",
-        fam = config["results"] + "haplotypes/pedigree/{dataset}.duos_and_trios.fam",
-        #map = config["resources"] + "genetic_map/chr{chr}.cM.genetic_map",
-        #scaffold = config["results"] + "haplotypes/scaffolds/{dataset}.{mode}.chr{chr}.vcf.gz",
-        #scaffold_csi = config["results"] + "haplotypes/scaffolds/{dataset}.{mode}.chr{chr}.vcf.gz.csi",
-    output:
-        phased = config["results"] + "haplotypes/SHAPEIT5/WGS/{dataset}.{mode}.chr{chr}.bcf",
-    log:
-        config["results"] + "haplotypes/SHAPEIT5/WGS/log/{dataset}.{mode}.chr{chr}.log",
-    threads: 8
-    resources: nodes = 8
-    conda: "../envs/shapeit5.yaml"
-    shell: """
-        SHAPEIT5_phase_common \
-            --input {input.vcf} \
-            --pedigree {input.fam} \
-            --region {wildcards.chr} \
-            --output {output.phased} \
-            --log {log} \
-            --thread {threads} \
-        """
+# rule shapeit5_WGS_imputation:
+#     """Haplotype estimation and imputation."""
+#     input:
+#         vcf = config["results"] + "genotypes/pass/WGS/{dataset}.{mode}.chr{chr}.vcf.gz",
+#         csi = config["results"] + "genotypes/pass/WGS/{dataset}.{mode}.chr{chr}.vcf.gz.csi",
+#         #vcf = config["results"] + "genotypes/pass/WGS/{dataset}.{mode}.chr{chr}.vcf.gz",
+#         #csi = config["results"] + "genotypes/pass/WGS/{dataset}.{mode}.chr{chr}.vcf.gz.csi",
+#         fam = config["results"] + "haplotypes/pedigree/{dataset}.duos_and_trios.fam",
+#         #map = config["resources"] + "genetic_map/chr{chr}.cM.genetic_map",
+#         #scaffold = config["results"] + "haplotypes/scaffolds/{dataset}.{mode}.chr{chr}.vcf.gz",
+#         #scaffold_csi = config["results"] + "haplotypes/scaffolds/{dataset}.{mode}.chr{chr}.vcf.gz.csi",
+#     output:
+#         phased = config["results"] + "haplotypes/SHAPEIT5/WGS/{dataset}.{mode}.chr{chr}.bcf",
+#     log:
+#         config["results"] + "haplotypes/SHAPEIT5/WGS/log/{dataset}.{mode}.chr{chr}.log",
+#     threads: 8
+#     resources: nodes = 8
+#     conda: "../envs/shapeit5.yaml"
+#     shell: """
+#         SHAPEIT5_phase_common \
+#             --input {input.vcf} \
+#             --pedigree {input.fam} \
+#             --region {wildcards.chr} \
+#             --output {output.phased} \
+#             --log {log} \
+#             --thread {threads} \
+#         """
 
 rule glimpse_chunk:
     """Chunk into regions for GLIMPSE imputation."""

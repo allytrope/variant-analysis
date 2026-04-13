@@ -1,28 +1,4 @@
 """Rules related to variant calling of SNVs."""
-
-
-rule chromosome_windows:
-    """Create sliding windows for chromosomes."""
-    input:
-        fai = config["ref_fasta"] + ".fai",
-    output:
-        windows = config["resources"] + "ref_fna/contig_intervals.tsv",
-    params:
-        window_size = 50_000_000,
-    conda: "../envs/common.yaml"
-    shell: """
-        awk -v window={params.window_size} '{{ \
-            chr=$1; \
-            len=$2; \
-            for (start=1; start<len; start+=window) {{ \
-                end=start+window-1; \
-                if (end>len) end=len; \
-                print chr"\\t"start"\\t"end; \
-            }} \
-        }}' {input.fai} \
-        > {output.windows} \
-        """
-
 ## Variant calling
 
 # rule variant_calling_bcftools:
@@ -77,7 +53,7 @@ def ploidy(indiv, chrom):
         case "MT":
             return 1
         case _:
-            print(f"WARNING: {indiv} is of unknown sex.")
+            #print(f"WARNING: {indiv} is of unknown sex.")
             return 2 #3  # Autosomes are assumed to be diploid
 rule call_variants:
     """Call variants from a single chromosome to make VCF file.
@@ -133,12 +109,8 @@ rule call_variants_merge_chromosomes:
         seq = r"WGS|WES|GBS|AMP",
         run = r"[A-Za-z0-9_-]+",
     input:
-        vcfs = lambda wildcards: expand(config["results"] + "gvcf/{batch}/{seq}{indiv}_{library}.chr{chr}.g.vcf.gz",
-            chr=CHROMOSOMES,
-            batch=wildcards.batch,
-            seq = wildcards.seq,
-            indiv = wildcards.indiv,
-            library = wildcards.library),
+        vcfs = expand(config["results"] + "gvcf/{{batch}}/{{seq}}{{indiv}}_{{library}}.chr{chr}.g.vcf.gz",
+            chr=CHROMOSOMES),
     output:
         vcf = config["results"] + "gvcf/{batch}/{seq}{indiv}_{library}.g.vcf.gz",
     conda: "../envs/common.yaml"
@@ -154,12 +126,12 @@ rule call_variants_merge_chromosomes:
 rule create_sample_map:
     """Create sample map that contains names and paths to all VCFs to be used in consolidate rule."""
     input:
-        gvcfs = lambda wildcards: expand("{results}gvcf/{sample}.chr{chr}.g.vcf.gz",
+        gvcfs = expand("{results}gvcf/{sample}.chr{{chr}}.g.vcf.gz",
             results=config["results"],
             sample=collect_samples(fmt="{batch}/{seq}{indiv}_{library}"),
-            chr=wildcards.chr),
+        ),
     output:
-        sample_map = temp(config["results"] + "db/sample-maps/{dataset}.chr{chr}.sample-map"),
+        sample_map = config["results"] + "db/sample-maps/{dataset}.chr{chr}.sample-map",
     params:
         json = lambda wildcards: config["results"] + f"db/{wildcards.dataset}/{wildcards.chr}/callset.json",
     threads: 1
@@ -169,12 +141,9 @@ rule create_sample_map:
         print(f'{params.json}')
         try:
             with open(f'{params.json}') as f:
-                print('try beginning')
                 data = json.load(f)
                 samples_already_in_datastore = [sample['sample_name'] for sample in data['callsets']]
-                print('try end')
         except FileNotFoundError:
-            print('except')
             samples_already_in_datastore = []
         print(samples_already_in_datastore)
 
@@ -244,6 +213,40 @@ rule consolidate:
 #             -L {wildcards.contig} \
 #         """
 
+rule create_intervals:
+    """Create intervals for "scatter-gather" approach to joint calling.
+    Splits on N's in reference genome."""
+    input:
+        # Also needs index and dict files
+        ref = config["ref_fasta"],
+    output:
+        interval_list = config["results"] + "joint_call/intervals/intervals.list",
+    threads: 1
+    resources:
+        nodes = 1,
+        mem_mb = 6_000,
+    conda: "../envs/gatk.yaml"
+    shell: """
+        gatk --java-options '-Xmx4g' ScatterIntervalsByNs \
+            -R {input.ref} \
+            -OT ACGT \
+            -O {output.interval_list}
+    """
+
+rule separate_intervals_by_contig:
+    """Separate intervals into different files by contig."""
+    input:
+        interval_list = config["results"] + "joint_call/intervals/intervals.list",
+    output:
+        intervals_by_contig = config["results"] + "joint_call/intervals/intervals.{contig}.list",
+    threads: 1
+    resources: nodes = 1
+    conda: "../envs/common.yaml"
+    shell: """
+        grep -P '^{wildcards.contig}' {input.interval_list} \
+        | cut -f 1-3 \
+        > {output.intervals_by_contig}
+    """
 
 ## Jointly call variants
 rule joint_call_cohort:
@@ -261,8 +264,15 @@ rule joint_call_cohort:
     params:
         db = config["results"] + "db/{dataset}/{contig}",
     threads: 1
-    resources: nodes = 1
+    resources:
+        nodes = 1,
+        #mem_mb = 600_000,  # 180_000 previously worked for some intervals when doing WES+WGS marmosets
+        # This is just a guess at how to set memory dynamically.
+        # The thought is to use the size of the interval as well as
+        # add a set about for the reference genome. Technically, sample size would also be a factor.
+        mem_mb = lambda wildcards: (wildcards.end - wildcards.start) * 0.00004 + 1_000,
     conda: "../envs/gatk.yaml"
+    # -Xmx16g
     shell: """
         gatk --java-options '-Xmx16g' GenotypeGVCFs \
             -R {input.ref} \
@@ -280,11 +290,21 @@ rule concat_intervals_of_chromosome:
     input:
         vcfs = lambda wildcards: expand(config["results"] + "joint_call/polyallelic/{dataset}.chr{interval}.vcf.gz",
             dataset=wildcards.dataset,
-            interval=intervals.filter(
-                pl.col("contig") == wildcards.chr
-            )["interval"].to_list()),
+            # interval=intervals.filter(
+            #     pl.col("contig") == wildcards.chr
+            # )["interval"].to_list()
+            interval=pl.read_csv(config["results"] + "joint_call/intervals/intervals.list",
+                comment_prefix='@',
+                separator= "\t", new_columns=["contig", "start", "end"],
+                schema_overrides={"contig": pl.String, "start": pl.Int64, "end": pl.Int64}
+                ).with_columns(
+                    interval = pl.concat_str([pl.col("contig"), pl.lit(":"), pl.col("start"), pl.lit("-"), pl.col("end")]
+                )).filter(
+                    pl.col("contig") == wildcards.chr
+                )["interval"].to_list()
+            ),
     output:
-        vcf = config["results"] + "joint_call/polyallelic/{dataset}.chr{chr}.vcf.gz",
+        vcf = protected(config["results"] + "joint_call/polyallelic/{dataset}.chr{chr}.vcf.gz"),
     conda: "../envs/common.yaml"
     threads: 1
     resources: nodes = 1

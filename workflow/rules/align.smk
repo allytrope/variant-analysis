@@ -5,13 +5,8 @@ rule trim_fastp:
     """Trim using fastp."""
     # TODO: Generalize input
     input:
-        #reads = lambda wildcards: expand(config["resources"] + "reads/gzipped/{batch}/{seq}{indiv}_{library}_{flowcell_lane}.{read}.fastq.gz",
-        reads = lambda wildcards: expand(config["resources"] + "reads/{batch}/{seq}{indiv}_{library}_{flowcell_lane}.{read}.fastq.gz",
-            batch=wildcards.batch,
-            seq=wildcards.seq,
-            indiv=wildcards.indiv,
-            library=wildcards.library,
-            flowcell_lane=wildcards.flowcell_lane,
+        #reads = expand(config["resources"] + "reads/gzipped/{{batch}}/{{seq}}{{indiv}}_{{library}}_{{flowcell_lane}}.{{read}}.fastq.gz",
+        reads = expand(config["resources"] + "reads/{{batch}}/{{seq}}{{indiv}}_{{library}}_{{flowcell_lane}}.{read}.fastq.gz",
             read=["R1", "R2"]),
         #fastq = config["reads"] + "{batch}/{seq}{sample_run}.R1+2.fastq.genozip",
         #fastq = config["results"] + "reads/{batch}/{seq}{sample_run}.R1+R2.fastq",

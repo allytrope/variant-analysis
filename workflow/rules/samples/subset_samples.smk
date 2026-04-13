@@ -1,31 +1,32 @@
 """Rules for subsetting samples from VCFs."""
 
-rule subset_by_colony:
-    """Subset samples by colony."""
-    input:
-        demographics = config["demographics"],
-        runs = config["runs"],
-    output:
-        # "{colony}" can be a value like "rh_SPF_U42" or "rh_P51"
-        samples = config["resources"] + "subpop/{colony}.samples.list",
-    run:
-        import polars as pl
+# TODO: Work on this to not conflict with rule samples_names_from_ids
+# rule subset_by_colony:
+#     """Subset samples by colony."""
+#     input:
+#         demographics = config["demographics"],
+#         runs = config["runs"],
+#     output:
+#         # "{colony}" can be a value like "rh_SPF_U42" or "rh_P51"
+#         samples = config["resources"] + "subpop/samples/{colony}.list",
+#     run:
+#         import polars as pl
 
-        # Read colony info
-        demographics = pl.read_csv(input.demographics, separator="\t", columns=["Id", "Colony"], schema_overrides={"Id": pl.String}
-        ).filter(pl.col("Colony") == wildcards.colony)
+#         # Read colony info
+#         demographics = pl.read_csv(input.demographics, separator="\t", columns=["Id", "Colony"], schema_overrides={"Id": pl.String}
+#         ).filter(pl.col("Colony") == wildcards.colony)
 
-        # Read to find unique libraries for individuals
-        libraries = pl.read_csv(input.runs, separator="\t", columns=["indiv", "seq", "library"], schema_overrides={"indiv": pl.String}).unique()
+#         # Read to find unique libraries for individuals
+#         libraries = pl.read_csv(input.runs, separator="\t", columns=["indiv", "seq", "library"], schema_overrides={"indiv": pl.String}).unique()
 
-        # Inner join on the two dataframes
-        demographics.join(libraries, left_on="Id", right_on="indiv", how="inner"
-        ).with_columns(
-            # Construct sample names used in VCF
-            pl.concat_str([pl.col("seq"), pl.col("Id"), pl.lit("_"), pl.col("library")], separator="").alias("sample")
-        ).select("sample"
-        # Write output
-        ).write_csv(output.samples, include_header=False)
+#         # Inner join on the two dataframes
+#         demographics.join(libraries, left_on="Id", right_on="indiv", how="inner"
+#         ).with_columns(
+#             # Construct sample names used in VCF
+#             pl.concat_str([pl.col("seq"), pl.col("Id"), pl.lit("_"), pl.col("library")], separator="").alias("sample")
+#         ).select("sample"
+#         # Write output
+#         ).write_csv(output.samples, include_header=False)
 
 rule only_one_seq_type:
     """Subset down to only one sample for each individual and of only a specific sequencing type."""
@@ -38,7 +39,7 @@ rule only_one_seq_type:
         vcf = config["results"] + "genotypes/pass/{dataset}.{seq}.{mode}.chr{chr}.bcf",
         tmp_samples = temp(config["results"] + "genotypes/{dataset}.{seq}.{mode}.chr{chr}.samples.list"),
         tmp_samples2 = temp(config["results"] + "genotypes/{dataset}.{seq}.{mode}.chr{chr}.samples2.list"),
-    conda: "../envs/common.yaml"
+    conda: "../../envs/common.yaml"
     shell: """
         bcftools query -l {input.vcf} \
             | sed 's/.\{{3\}}/&\t/; s/_/\t/' \
@@ -58,6 +59,29 @@ rule only_one_seq_type:
         > {output.vcf} \
         """
 
+rule deduplicate_samples:
+    """Create a list of samples where only one samples from each individual is kept."""
+    input:
+        bcf = config["results"] + "genotypes/pass/{dataset}.{subset}.{mode}.chr1.bcf",
+        tbi = config["results"] + "genotypes/pass/{dataset}.{subset}.{mode}.chr1.bcf.csi",
+    output:
+        dedup_samples = config["results"] + "genotypes/pass/{dataset}.{subset}.{mode}.dedup_samples.list",
+        dedup_indivs = config["results"] + "genotypes/pass/{dataset}.{subset}.{mode}.dedup_indivs.list",
+    shell: """
+            bcftools query -l {input.bcf} \
+            | sed 's/.\{{3\}}/&\t/; s/_/\t/' \
+            | csvtk sort \
+                -k 2,1:u,3:r \
+                -L 1:<(for i in WGS lpWGS WES GBS AMP; do echo $i; done) \
+                -t \
+                -H \
+            | awk 'BEGIN {{FS="\t"; OFS=""}} $2!=prev {{print $1,$2,"_"$3}} {{prev=$2}}' \
+            | tee {output.dedup_samples} \
+            | cut -d '_' -f 1 \
+            | cut -c 4- \
+            > {output.dedup_indivs}; \
+        """
+
 rule deduplicate_individuals:
     """Keep one of each animal and then simplify names down to ids.
     Samples are prioritized in the order: WGS, WES, GBS, AMP.
@@ -72,7 +96,7 @@ rule deduplicate_individuals:
         bcf = config["results"] + "genotypes/pass/{dataset}.{subset}.dedup.{mode}.chr{chr}.bcf",
         tmp_samples = temp(config["results"] + "genotypes/pass/{dataset}.{subset}.dedup.{mode}.chr{chr}.samples.list"),
         tmp_samples2 = temp(config["results"] + "genotypes/pass/{dataset}.{subset}.dedup.{mode}.chr{chr}.samples2.list"),
-    conda: "../envs/common.yaml"
+    conda: "../../envs/common.yaml"
     # Split full sample names into seq + animal_id + run_id assuming a field like so: {seq}{animal_id}_{run_id}
     # Sort by priority
     # Only keep first of each animal_id

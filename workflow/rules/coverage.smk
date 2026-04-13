@@ -1,53 +1,66 @@
 """Rules related to determining genomic coverage."""
 
-#CUTOFF = 0.8  # config["coverage"]
 DIR = config["results"] + "coverage/"
 
 ## Determining common loci
-rule find_coverage:
+rule find_bam_coverage:
     """Find coverage of sequence. Helpful for finding what regions are being sequenced."""
     input:
         bam = config["results"] + "alignments/recalibrated/{batch}/{sample_run}.bam",
     output:
-        counts = DIR + "per_read/{batch}/{sample_run}.bg",
+        counts = temp(pipe(DIR + "per_read/{batch}/{sample_run}.bg")),
     threads: 1
-    conda: "../envs/bio.yaml"
+    resources: nodes = 1
+    conda: "../envs/common.yaml"
     shell: """
         bedtools genomecov \
             -ibam {input.bam} \
             -bg > {output.counts}
         """
 
-rule merge_coverages:
-    """Combine coverage from multiple sequences. Creates new column of counts for each sample."""
+rule sum_coverage_from_same_library:
+    """Merge and sum counts from the same library."""
     input:
-        expand("{dir}per_read/{run_path}.bg", dir=DIR, run_path=SAMPLE_RUNS),
+        bgs = expand(DIR + "per_read/{{batch}}/{{sample}}_{{library}}_{run}.bg", 
+            DIR=DIR,
+            run=collect_runs_from_library(wildcards)),
     output:
-        DIR + "merged_coverage.bg",
-        #DIR + "merged_WES_coverage.bg",
+        bg = DIR + "per_library/{batch}/{sample}_{library}.bg",
     threads: 1
-    conda: "../envs/bio.yaml"
+    resources: nodes = 1
+    conda: "../envs/common.yaml"
+    # Tests whether there is 1 or more than 1 .bg file.
+    # This is because `bedtools unionbedg` won't work if there is only one.
     shell: """
-        bedtools unionbedg \
-            -i {input} \
-            > {output} \
+        array=({input.bgs});
+        if [[ "${{#array[@]}}" -eq 1 ]]; then \
+            cat {input.bgs} > {output.bg}; \
+        else \
+            bedtools unionbedg \
+                -i {input.bgs} \
+            | awk 'BEGIN {{OFS="\\t"; FS="\\t"}} {{sum=0; for (i=4; i<=NF; i+=1) sum+=$i; print $1,$2,$3,sum}}' \
+            > {output.bg};
+        fi \
         """
 
-# To be modified when using ENSEMBL reference (i.e., numbered chromosomes).
-rule find_common_loci:
+# For finding WES-specific regions
+rule merge_sample_coverages:
     """Find loci common to most samples based on cutoff value.
     This works by finding the number of samples with reads at that position, keeping only those above a given cutoff, and then merging intervals that overlap or are immediately adjacent."""
     input:
-        #DIR + "merged_coverage.bg",
-        DIR + "merged_WES_coverage.bg",
+        #expand("{dir}per_read/{run_path}.bg", dir=DIR, run_path=[run for run in SAMPLE_RUNS if run.split("/")[1].startswith("WES")]),
+        expand("{dir}per_library/{library_path}.bg", dir=DIR, library_path=list(set(["_".join(run.split("_")[0:2]) for run in SAMPLE_RUNS if run.split("/")[-1].startswith("WES")]))),
     output:
-        #DIR + "common_loci.bed",
-        DIR + "common_WES_loci.bed",
-    params: cutoff = 0.5,  # 0 <= cutoff <= 1
+        DIR + "common_WES.cutoff=0.8.minDP=5.bed",
+    params:
+        cutoff = 0.8,  # 0 <= cutoff <= 1
+        minDP = 5
     threads: 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
-        awk -v 'OFS=\t' '{{ {{for (i=4; i<=NF; i++) {{if ($i > 0) count += 1}} }}; if (count/(NF - 3) > {params.cutoff}) print $1,$2,$3; count = 0}}' {input} \
+        bedtools unionbedg \
+            -i {input} \
+        | awk -v 'OFS=\t' '{{ {{for (i=4; i<=NF; i++) {{if ($i >= {params.minDP}) count += 1}} }}; if (count/(NF - 3) > {params.cutoff}) print $1,$2,$3; count = 0}}' \
         | bedtools merge \
             -d 1 \
         > {output} \
@@ -69,7 +82,7 @@ rule intersect_exon_count:
         ref_bed = config["resources"] + "annotations/GCF_009663435.1_Callithrix_jacchus_cj1700_1.1_genomic.chr_renamed.exons.no_header.gff",
     output: intersection = DIR + "intersections/exons/{batch}/{seq}{sample_run}.stats",
     threads: 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         bedtools intersect \
             -a {input.target} \
@@ -113,7 +126,7 @@ rule intersect_bed_count:
         ref_bed = config["resources"] + "annotations/GCF_009663435.1_Callithrix_jacchus_cj1700_1.1_genomic.chr_renamed.exons.gff"
     output: intersection = DIR + "intersections/{batch}/{sample}.stats",
     threads: 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         bedtools intersect \
             -a {input.target} \
@@ -133,7 +146,7 @@ rule intersectional_fraction:
         intersections = expand(DIR + "intersections/{sample}.stats", DIR=DIR, sample=SAMPLES),
     output: total = DIR + "intersections/total.stats",
     threads: 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         for i in {{1..2}}; \
         do awk -v i=$i 'FNR==i {{ print }}' {input.intersections} | awk '{{ sum+=$1 }} END {{ print sum }}'; \
@@ -149,7 +162,7 @@ rule vcf_bed_intersection:
         subset = config["resources"] + "samples/WES_WGS_no_label.list",  # Just temporary
     output: vcf = config["results"] + "genotypes/filtered/WES_WGS.SNP.chr{chr}.WES_regions.min-ac_3.vcf.gz",
     threads: 1
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         bcftools view {input.vcf} \
             -R {input.bed} \
@@ -163,7 +176,7 @@ rule nonmissing_genotypes:
     """Find fraction of genotypes not missing in samples of .vcf file."""
     input: vcf = config["results"] + "coverage/{dataset}.test.vcf",  # Set this to whatever .vcf file is of interest.
     output: config["results"] + "coverage/{dataset}.GT_stats.csv",
-    #conda: "../envs/bio.yaml",
+    #conda: "../envs/common.yaml",
     run:
         import allel
         import pandas as pd
@@ -218,14 +231,16 @@ rule nonmissing_genotypes:
 rule windowed_depth:
     """Find depth across windows in one sample."""
     input:
-        bams = collect_runs_from_sample,  # From variant_calling.smk
-        bams_idx = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_sample(wildcards))),
+        # bams = collect_runs_from_sample,  # From variant_calling.smk
+        # bams_idx = lambda wildcards: list(map(lambda bam: bam + ".bai", collect_runs_from_sample(wildcards))),
+        bam = config["results"] + "alignments/recalibrated/{batch}/{sample_run}.bam",  # From variant_calling.smk
+        bam_idx = config["results"] + "alignments/recalibrated/{batch}/{sample_run}.bam.bai",
     output:
-        global_dist = config["results"] + "coverage/mosdepth/{sample}.mosdepth.global.dist.txt",
-        region_dist = config["results"] + "coverage/mosdepth/{sample}.mosdepth.region.dist.txt",
-        summary = config["results"] + "coverage/mosdepth/{sample}.mosdepth.summary.txt",
-        bed = config["results"] + "coverage/mosdepth/{sample}.regions.bed.gz",
-        csi = config["results"] + "coverage/mosdepth/{sample}.regions.bed.gz.csi",
+        global_dist = config["results"] + "coverage/mosdepth/{batch}/{sample_run}.mosdepth.global.dist.txt",
+        region_dist = config["results"] + "coverage/mosdepth/{batch}/{sample_run}.mosdepth.region.dist.txt",
+        summary = config["results"] + "coverage/mosdepth/{batch}/{sample_run}.mosdepth.summary.txt",
+        bed = config["results"] + "coverage/mosdepth/{batch}/{sample_run}.regions.bed.gz",
+        csi = config["results"] + "coverage/mosdepth/{batch}/{sample_run}.regions.bed.gz.csi",
     params:
         prefix = lambda wildcards, output: output.bed.split(".")[0],
         window_size = 5_000_000,
@@ -233,19 +248,55 @@ rule windowed_depth:
     resources: nodes = 4
     conda: "../envs/delly.yaml"
     shell: """
-        mosdepth {params.prefix} <(samtools merge {input.bam} -o -) \
+        mosdepth {params.prefix} {input.bam} \
             --by {params.window_size} \
             -n \
             --fast-mode \
             -t {threads} \
+        """
+    # """
+    #     mosdepth {params.prefix} <(samtools merge {input.bams} -o -) \
+    #         --by {params.window_size} \
+    #         -n \
+    #         --fast-mode \
+    #         -t {threads} \
+    #     """
+
+import itertools
+
+rule merge_sample_runs_windowed_depth:
+    """Merge BED files from same sample."""
+    input:
+        beds = lambda wildcards: expand(config["results"] + "coverage/mosdepth/{batch_sample_run}.regions.bed.gz",
+            batch_sample_run=[sample_run for sample_run in SAMPLE_RUNS if f"{wildcards.batch}/{wildcards.sample}" in sample_run]
+        ),
+    output:
+        bed = config["results"] + "coverage/mosdepth/{batch}/{sample}.regions.bed.gz",
+    params:
+        named_pipes = lambda wildcards, input: " ".join([f"<(zcat {bed})" for bed in input.beds]),
+        fields = lambda wildcards, input: ";".join(itertools.repeat("1,2,3", len(input.beds))),
+    # Unfortunately, `csvtk join` can only take a minimum of two files, so the if statement is for when there is only one file
+    shell: """
+        beds=({input.beds}); \
+        if [ "${{#beds[@]}}" -le 1 ]; then \
+            cat {input.beds} \
+            > {output.bed}; \
+        else \
+            csvtk join {params.named_pipes} \
+                -f "{params.fields}" \
+                -t \
+            | awk 'BEGIN {{FS="\t"}} {{for(i=4;i<=NF;i++) sum+=$(i); print $1,$2,$3,sum}}' \
+            | gzip \
+            | > {output.bed}; \
+        fi; \
         """
 
 rule merge_windowed_depth:
     """Merge windowed depth into one file for viewing joint figure."""
     input:
         #bed = expand(config["results"] + "coverage/mosdepth/{sample}.regions.bed.gz", sample=SAMPLES),
-        bed = expand(config["results"] + "coverage/mosdepth/{sample}.regions.bed.gz",
-            sample=SAMPLES),
+        bed = expand(config["results"] + "coverage/mosdepth/{batch_sample_run}.regions.bed.gz",
+            batch_sample_run=BATCH_SAMPLES),
     output:
         #merged_bed = config["results"] + "coverage/mosdepth/{name}.merged_with_dup.bed",
         merged_bed = config["results"] + "coverage/mosdepth/{name}.merged.bed",

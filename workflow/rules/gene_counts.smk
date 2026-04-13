@@ -36,7 +36,7 @@ rule count_genes:
 
 rule merge_counts:
     """Merge counts from different samples."""
-    input: quants = expand("{dir}{sample}.counts", dir=DIR, sample=SAMPLE_NAMES),
+    input: quants = expand("{dir}{sample}.counts", dir=DIR, sample=SAMPLES),
     output: merged_quants = DIR + "merged.counts",
     params: quants = lambda wildcards, input: "{" + ",".join(input.quants) + "}",
     threads: 1

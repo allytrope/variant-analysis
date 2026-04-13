@@ -5,7 +5,7 @@ rule plink_update_parents:
     input:
         demographics = config["demographics"],
     output:
-        update_parents = temp("{path}/plink/{dataset}.{subset}.{mode}.{contig}.update_parents.tsv"),
+        update_parents = temp("{path}/plink/{dataset}.{subset}.update_parents.tsv"),
     conda: "../envs/common.yaml"
     shell: """
         cat {input.demographics} \
@@ -21,7 +21,7 @@ rule plink_update_sex:
     input:
         demographics = config["demographics"],
     output:
-        update_sex = temp("{path}/plink/{dataset}.{subset}.{mode}.{contig}.update_sex.tsv"),
+        update_sex = temp("{path}/plink/{dataset}.{subset}.update_sex.tsv"),
     conda: "../envs/common.yaml"
     shell:"""
         cat {input.demographics} \
@@ -36,8 +36,8 @@ rule create_plink_files:
     # `contig` can be chr# or "autosomal"
     input:
         bcf = "{path}/{dataset}.{subset}.{mode}.{contig}.bcf",
-        update_parents = "{path}/plink/{dataset}.{subset}.{mode}.{contig}.update_parents.tsv",
-        update_sex = "{path}/plink/{dataset}.{subset}.{mode}.{contig}.update_sex.tsv",
+        update_parents = "{path}/plink/{dataset}.{subset}.update_parents.tsv",
+        update_sex = "{path}/plink/{dataset}.{subset}.update_sex.tsv",
     output:
         ped = "{path}/plink/{dataset}.{subset}.{mode}.{contig}.ped",
         map = "{path}/plink/{dataset}.{subset}.{mode}.{contig}.map",

@@ -71,7 +71,7 @@ rule genounzip_to_fastq_gz:
         fastq = temp(config["resources"] + "reads/{batch}/{seq}{indiv}_{library}_{flowcell_lane}.{read}.fastq.gz"),
     threads: 1
     resources: nodes = 1
-    conda: "../envs/common.yaml"
+    conda: "../../envs/common.yaml"
     shell: """
         genocat {input.fastq} --{wildcards.read} --reference {input.ref_genozip} | bgzip -c > {output.fastq}
         """
@@ -88,7 +88,7 @@ rule genounzip_fastq:
         #fastq = config["resources"] + "reads/{batch}/{seq}{sample_run}.{read}.fastq",
     threads: 1
     resources: nodes = 1
-    conda: "../envs/common.yaml"
+    conda: "../../envs/common.yaml"
     shell: """
         genocat {input.fastq} --{wildcards.read} --reference {input.ref_genozip} > {output.fastq}
         """
@@ -104,7 +104,7 @@ rule genounzip_fastq_interleaved:
         fastq = pipe(config["resources"] + "reads/{batch}/{seq}{sample_run}.R1+R2.fastq"),
     threads: 1
     resources: nodes = 1
-    conda: "../envs/common.yaml"
+    conda: "../../envs/common.yaml"
     shell: """
         genocat {input.fastq} --reference {input.ref_genozip} > {output.fastq}
         """
@@ -136,7 +136,7 @@ rule fastq_one_line:
         fastq = temp(config["results"] + "reads/{batch}/{seq}{sample_run}.first_line.R1+2.fastq"),
     threads: 1
     resources: nodes = 1
-    conda: "../envs/common.yaml"
+    conda: "../../envs/common.yaml"
     shell: """
         zcat {input.fastq} | head -n 1 > {output.fastq}
         """

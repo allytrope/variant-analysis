@@ -13,7 +13,7 @@ rule subpop_vcf:
         samples = lambda wildcards: config["pops"][int(wildcards.int)],
     output:
         vcf = config["results"] + "{path}/{description}.pop{int}.chr{chr}.vcf.gz",
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         bcftools view {input.vcf} \
             -S {input.samples} \
@@ -28,16 +28,9 @@ rule concat_chrom_chromosomes:
         #statistic = "divergence|diversity|expected_heterozygostiy",
         #seq = "WGS",
     input:
-        # pickles = lambda wildcards: expand(config["results"] + "scikit-allel/{statistic}/{seq}/{dataset}.{mode}.{window_size}kbp.chr{chr}.pickle", 
-        #     statistic=wildcards.statistic,
-        #     seq=wildcards.seq,
-        #     dataset=wildcards.dataset,
-        #     mode=wildcards.mode,
-        #     window_size=wildcards.window_size,
+        # pickles = expand(config["results"] + "scikit-allel/{{statistic}}/{{seq}}/{{dataset}}.{{mode}}.{{window_size}}kbp.chr{chr}.pickle",
         #     chr=CHROMOSOMES),
-        pickles = lambda wildcards: expand(config["results"] + "scikit-allel/{path}/{description}.chr{chr}.pickle", 
-            path=wildcards.path,
-            description=wildcards.description,
+        pickles = expand(config["results"] + "scikit-allel/{{path}}/{{description}}.chr{chr}.pickle",
             chr=CHROMOSOMES),
     output:
         #pickle = config["results"] + "scikit-allel/{statistic}/{seq}/{dataset}.{mode}.{window_size}kbp.pickle"
@@ -189,15 +182,13 @@ rule expected_heterozygosity:
 #         allel.moving_delta_tajima_d()
 #         """
 
-# rule scikit_allel_XPEHH:
-#     """Unstandardized cross-population extended haplotype homozygosity."""
-#     input:
-#     output:
-#     conda: "../envs/scikit.yaml"
-#     shell: """
-#         import allel
-#         allel.xpehh()
-#         """
-
-
-
+rule scikit_allel_XPEHH:
+    """Unstandardized cross-population extended haplotype homozygosity."""
+    input:
+        vcf = config["results"] + "haplotypes/SHAPEIT5_{seq}/{dataset}.{mode}.chr{chr}.vcf.gz",
+        pops = config["pops"],
+    output:
+        pickle = temp(config["results"] + "scikit-allel/xpehh/{seq}/{dataset}.{mode}.chr{chr}.pickle"),
+    conda: "../envs/scikit.yaml"
+    script:
+        "../scripts/scikit-allel/xpehh.py"

@@ -25,7 +25,7 @@ rule create_partial_pheno:
     """Begin creation of phenotype file for `rvtest`."""
     input:
         pops = config["pops"],  # A list of files
-        demographics = config["demographics"],
+        demographics = config["resources"] + "pedigree/demographics.tsv",
     output:
         pheno = temp(config["resources"] + "samples/pops/partial_pheno.tsv"),
     shell: """
@@ -83,7 +83,7 @@ rule largest_samples_without_seq_prefix:
         samples_no_prefix = config["results"] + "haplotypes/pedigree/{dataset}.largest_samples.no_prefix.list",
     threads: 1
     resources: nodes = 1
-    conda: "../../envs/bio.yaml"
+    conda: "../../envs/common.yaml"
     shell: """
         cut {input.samples} -c 4- > {output.samples_no_prefix}; \
         """
@@ -107,7 +107,7 @@ rule largest_samples_only_vcf:
         vcf = config["results"] + "haplotypes/SHAPEIT5_{seq}/{dataset}.SNP.largest_no_prefix.autosomal.vcf.gz",
     threads: 1
     resources: nodes = 1
-    conda: "../../envs/bio.yaml"
+    conda: "../../envs/common.yaml"
     shell: """
         bcftools view {input.vcf} \
             -S {input.samples} \
@@ -124,7 +124,8 @@ rule kinship_matrix:
         bcf = config["results"] + "haplotypes/SHAPEIT5_{seq}/{dataset}.SNP.largest_no_prefix.autosomal.vcf.gz",
         idx = config["results"] + "haplotypes/SHAPEIT5_{seq}/{dataset}.SNP.largest_no_prefix.autosomal.vcf.gz.tbi",
         #ped = config["resources"] + "pheno/RPL.pheno",
-        ped = config["ped"],
+        #ped = config["ped"],
+        ped = config["results"] + "pedigree/all_individuals.fam"  #TODO: Test that this still works
     params:
         prefix = config["results"] + "stats/burden_test/kinship/{dataset}.{seq}",
     output:

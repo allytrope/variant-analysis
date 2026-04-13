@@ -33,23 +33,23 @@ rule RFMix:
         # query_VCF = config["results"] + "genotypes/pass/{dataset}.{subset}.SNP.chr{chr}.bcf",
         # query_VCF_idx = config["results"] + "genotypes/pass/{dataset}.{subset}.SNP.chr{chr}.bcf.csi",
         query_VCF = config["results"] + "haplotypes/SHAPEIT5/{dataset}.{subset}.SNP.chr{chr}.bcf",
-        query_VCF_idx = config["results"] + "haplotypes/SHAPEIT5/{dataset}.{subset}.SNP.chr{chr}.bcf.csi",
-        ref_VCF = config["resources"] + "ref_vcf/Indian-Chinese.F_MISSING_gt_0.0.all2_subset.bcf",
-        ref_VCF_idx = config["resources"] + "ref_vcf/Indian-Chinese.F_MISSING_gt_0.0.all2_subset.bcf.csi",
-        #ref_VCF = config["resources"] + "ref_vcf/12_Indian_12_Chinese.phased.autosomal.bcf",
-        #ref_VCF_idx = config["resources"] + "ref_vcf/12_Indian_12_Chinese.phased.autosomal.bcf.csi",
-        sample_map = config["resources"] + "ref_vcf/Indian-Chinese_ancestry.tsv",
+        query_idx = config["results"] + "haplotypes/SHAPEIT5/{dataset}.{subset}.SNP.chr{chr}.bcf.csi",
+        #ref_VCF = config["resources"] + "ref_vcf/Indian-Chinese.F_MISSING_gt_0_all2_subset.bcf",
+        #ref_VCF_idx = config["resources"] + "ref_vcf/Indian-Chinese.F_MISSING_gt_0_all2_subset.bcf.csi",
+        ref_VCF = config["resources"] + "ref_vcf/{dataset2}.{subset2}.bcf",
+        ref_idx = config["resources"] + "ref_vcf/{dataset2}.{subset2}.bcf.csi",
+        sample_map = config["resources"] + "ref_vcf/{dataset2}_ancestry.tsv",
         genetic_map = config["resources"] + "genetic_map/autosomal.cM.genetic_map",
     params:
-        output_base = config["results"] + "admixture/RFMix/{dataset}.{subset}.RFMix.chr{chr}",
+        output_base = subpath(output.msp, strip_suffix=".msp.tsv"),
     output:
         # msp = lambda wildcards, params: params.output_base + "msp.tsv",
         # fb = lambda wildcards, params: params.output_base + "fb.tsv",
-        msp = config["results"] + "admixture/RFMix/{dataset}.{subset}.RFMix.chr{chr}.msp.tsv",
-        fb = config["results"] + "admixture/RFMix/{dataset}.{subset}.RFMix.chr{chr}.fb.tsv",
-        Q = config["results"] + "admixture/RFMix/{dataset}.{subset}.RFMix.chr{chr}.rfmix.Q",
-        sis = config["results"] + "admixture/RFMix/{dataset}.{subset}.RFMix.chr{chr}.sis.tsv",
-    log: config["results"] + "admixture/RFMix/{dataset}.{subset}.RFMix.chr{chr}.log",
+        msp = config["results"] + "admixture/RFMix/{dataset}.{subset}.{dataset2}.{subset2}.chr{chr}.msp.tsv",
+        fb = config["results"] + "admixture/RFMix/{dataset}.{subset}.{dataset2}.{subset2}.chr{chr}.fb.tsv",
+        Q = config["results"] + "admixture/RFMix/{dataset}.{subset}.{dataset2}.{subset2}.chr{chr}.rfmix.Q",
+        sis = config["results"] + "admixture/RFMix/{dataset}.{subset}.{dataset2}.{subset2}.chr{chr}.sis.tsv",
+    log: config["results"] + "admixture/RFMix/{dataset}.{subset}.{dataset2}.{subset2}.chr{chr}.log",
     threads: 1
     resources: nodes = 1
     conda: "../envs/admixture.yaml"
@@ -69,12 +69,10 @@ rule RFMix:
 rule concat_msp:
     """Combine the .msp files for each chromosome of RFMix."""
     input:
-        lambda wildcards: expand(config["results"] + "admixture/{dataset}.{subset}.RFMix.chr{chr}.msp.tsv",
-            chr=[chrom for chrom in CHROMOSOMES if chrom not in ["X", "Y", "MT"]],
-            dataset=wildcards.dataset,
-            subset=wildcards.subset),
+        expand(config["results"] + "admixture/RFMix/{{dataset}}.{{subset}}.{{dataset2}}.{{subset2}}.chr{chr}.msp.tsv",
+            chr=AUTOSOMES),
     output:
-        concat = config["results"] + "admixture/{dataset}.{subset}.RFMix.all.msp.tsv",
+        concat = config["results"] + "admixture/RFMix/{dataset}.{subset}.{dataset2}.{subset2}.all.msp.tsv",
     threads: 1
     resources: nodes = 1
     conda: "../envs/admixture.yaml"
@@ -109,63 +107,6 @@ rule concat_msp:
 
 
 ## Unsuperived admixture using ADMIXTURE
-
-# rule create_plink_files:
-#    """Create PLINK .ped and .map files."""
-#     input: vcf = CONFIG["vcf"],
-#     output: ped = config["results"] + "plink/{dataset}.initial.ped",
-#             map = config["results"] + "plink/{dataset}.map",
-#     params: out = lambda wildcards: config["results"] + "plink/{dataset}".format(dataset=wildcards.dataset),
-#     shell: "vcftools \
-#                --vcf {input.vcf} \
-#                --plink \
-#                --out {params.out}; \
-#             mv {params.out}.ped {params.out}.initial.ped"
-
-
-
-# rule recode_plink_files:
-#     """Convert base readings from {A,C,T,G} to {1,2}.
-#     Not preferable. Ideally create from VCF."""
-#     input:
-#         lambda wildcards: expand("{prefix}.{ext}",
-#             prefix=wildcards.prefix,
-#             ext=["ped", "map"],
-#         ),
-#     output:
-#         lambda wildcards: expand("{prefix}.recode12.{ext}",
-#             prefix=wildcards.prefix,
-#             ext=["ped", "map"],
-#         ),
-#     shell: """
-#         plink \
-#             --file {wildcards.prefix} \
-#             --out {wildcards.prefix}.recode12 \
-#             --recode12 \
-#         """
-
-# rule bcf_to_plink:
-#     """Create .bed and associated PLINK files."""
-#     input:
-#         bcf = "{prefix}.bcf",
-#     output:
-#         lambda wildcards: expand("{prefix}.recode12.{ext}",
-#             prefix=wildcards.prefix,
-#             ext=["ped", "map"],
-#         ),
-#     shell: """
-#         plink \
-#             --file {input.bcf} \
-#             --out {wildcards.prefix} \
-#             --make-bed \
-#             --recode12 \
-#         """
-#     shell: "plink \
-#                 --bcf {input.vcf} \
-#                 --recode12 \
-#                 --make-bed \
-#                 --out {config[results]}admixture/supervised/plink/{wildcards.sample}"
-
 rule unsupervised_ADMIXTURE:
     """Cluster samples by ancestry in an unsupervised manner."""
     input:
@@ -207,7 +148,7 @@ rule subset_ref:
         ref_csi = config["resources"] + "ref_vcf/Indian-Chinese.vcf.gz.tbi",
     output:
         ref_bcf = config["resources"] + "ref_vcf/filtered/Indian-Chinese.chr{chr}.bcf",
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         bcftools view {input.ref_bcf} \
             -e 'F_MISSING>0.6' \
@@ -237,7 +178,7 @@ rule intersect_ref:
     threads: 2
     resources:
         nodes = 2
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         bcftools isec \
             {input.query_bcf} \
@@ -256,7 +197,7 @@ rule merge_ref:
         bcf1 = config["results"] + "genotypes/isec/{dataset}.{subset}_Indian-Chinese.chr{chr}/0001.bcf",
     output:
         bcf = config["results"] + "genotypes/pass/{dataset}.{subset}_Indian-Chinese_merged.SNP.chr{chr}.bcf",
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     shell: """
         bcftools merge {input.bcf0} {input.bcf1} \
             -Ob \
@@ -277,7 +218,7 @@ rule make_pop_ADMIXTURE:
         #population = "{prefix}/{name}.pop",
         #population = "{prefix}/{dataset}.{subset}_Indian-Chinese_merged.{mode}.autosomal.pop",
         population = "{prefix}/{dataset}.{subset}.{mode}.autosomal.pop",
-    conda: "../envs/bio.yaml"
+    conda: "../envs/common.yaml"
     #-f 'Indiv;Id' \
     shell: """
         csvtk join \

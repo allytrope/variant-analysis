@@ -1,129 +1,140 @@
-"""Ancestry and pairwise relatedness estimation based on LASER and SEEKIN software, respectively.
-LASER and SEEKIN-het are better than ADMIXTURE and lcMLkin for related individuals.
-LASER is said to work on shotgun sequencing data, but requires a set of
-reference individuals with "genome-wide SNP genotypes and ancestry information" available."""
 
-CONFIG = config["kinship"]
-DIR = config["results"] + "kinship/"
-PREFIX = "no_missing_geno"
-
-rule create_geno_and_site:
-    """Create .geno and .site files for LASER."""
-    input: ref_vcf = CONFIG["ref_vcf"],
-           pop_ids = CONFIG["pop_ids"],
-    output: geno = DIR + PREFIX + ".geno",
-            site = DIR + PREFIX + ".site",
-    params: prefix = DIR + PREFIX,
-    shell: "vcf2geno \
-                --inVcf {input.ref_vcf} \
-                --out {params.prefix} \
-                --updateID {input.pop_ids}"
-
-rule create_bed:
-    """Create .bed file, containing list of sites."""
-    input: site = DIR + PREFIX + ".site",
-    output: bed = DIR + PREFIX + ".bed",
-    shell: "awk '{{if (NR>1) {{print $1,$2-1,$2,$3;}}}}' {input.site} > {output.bed}"
-
-rule create_pileup:
-    """Create .pileup file for a sample."""
-    input: bed = DIR + PREFIX + ".bed",
-           ref_fasta = config["ref_fasta"],
-           ref_fasta_idx = config["ref_fasta"] + ".fai",
-           bam = config["results"] + "alignments_recalibrated/{sample}.bam",  ## From bwa-mem in `variant_calling.smk`
-    output: pileup = DIR + "pileup/{sample}.pileup",
+rule kin_akt:
+    """Calculate kinship using the tool akt."""
+    input:
+        # vcf = config["results"] + "haplotypes/SHAPEIT5_WGS/{dataset}.{mode}.vcf.gz",
+        # tbi = config["results"] + "haplotypes/SHAPEIT5_WGS/{dataset}.{mode}.vcf.gz.tbi",
+        # regions = config["results"] + "relatedness/pca/SHAPEIT5_WGS/{dataset}.{mode}.pca_regions.bed",
+        #bcf = config["results"] + "genotypes/pass/{dataset}.{subset}.{mode}.chr{chr}.bcf",
+        bcfs = expand(config["results"] + "genotypes/pass/{{dataset}}.{{subset}}.{{mode}}.chr{chr}.bcf",
+            chr=AUTOSOMES),
+    output:
+        txt = config["results"] + "kinship/akt/{dataset}.{subset}.{mode}.kin.txt",
+    threads: 24
+    resources: nodes = 24
     conda: "../envs/kinship.yaml"
-    shell: "samtools sort {input.bam} | samtools mpileup \
-                -q 30 \
-                -Q 20 \
-                -f {input.ref_fasta} \
-                -l {input.bed} > {output.pileup}"
+    shell: """
+        bcftools concat {input.bcfs} -Ob \
+        | akt kin \
+            --force \
+            --threads {threads} \
+        > {output.txt} \
+        """
 
-rule create_seq:
-    """Create .seq file for LASER."""
-    input: ref_fasta = config["ref_fasta"],
-           site = DIR + PREFIX + ".site",
-           pileups = expand("{dir}pileup/{sample}.pileup", dir=DIR, sample=SAMPLE_NAMES)
-    output: seq = DIR + PREFIX + ".seq",
-    # SET IN PATH OR MOVE
-    # `-b` and `-i` flags are optional
-    shell: "python pileup2seq.py {input.pileups} \
-                -f {input.ref_fasta} \
-                -m {input.site} \
-                -o {output.seq}"
+# rule merge_plink:
+#     input:
+#         beds = lambda wildcards: expand(config["results"] + "genotypes/plink/{dataset}.{subset}.SNP.chr{chr}.bed",
+#             dataset=wildcards.dataset,
+#             subset=wildcards.subset,
+#             chr=["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20"]),
+#     output:
+#         tmp = config["results"] + "genotypes/plink/{dataset}.{subset}.SNP.autosomal.list",
+#         merged = config["results"] + "genotypes/plink/{dataset}.{subset}.SNP.autosomal.bed",
+#     params: 
+#         first_bed = config["results"] + "genotypes/plink/{dataset}.{subset}.SNP.chr1",
+#         other_beds = lambda wildcards: expand(config["results"] + "genotypes/plink/{dataset}.{subset}.SNP.chr{chr}",
+#             dataset=wildcards.dataset,
+#             subset=wildcards.subset,
+#             chr=["2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20"]),
+#         merged = config["results"] + "genotypes/plink/{dataset}.{subset}.SNP.autosomal",
+#     conda: "../envs/rvtests.yaml"
+#     shell: """
+#         for i in {params.other_beds}; do echo $i >> {output.tmp}; done; \
+#         plink --file {params.first_bed} --merge-list {output.tmp} --make-bed --out {params.merged} \
+#         """
 
-rule create_coord:
-    """Create .coord file for LASER by running in PCA mode."""
-    input: geno = DIR + PREFIX + ".geno",
-    output: coord = DIR + PREFIX + ".RefPC.coord",
-            var = DIR + PREFIX + ".RefPC.var",
-            grm = DIR + PREFIX + ".RefPC.grm",  # Only for when `-pca 1`. When `3`, makes `.RefPC.load` instead.
-    params: pca_mode = 1,
-            prefix = DIR + PREFIX,
-            conf = DIR + "laser.conf",
-    shell: "laser \
-                -pca {params.pca_mode} \
-                -o {params.prefix} \
-                -p {params.conf}"
-
-rule laser:
-    """Estimate individual ancestry background."""
-    input: geno = DIR + PREFIX + ".geno",
-           seq = DIR + PREFIX + ".seq",
-           ref_coord = DIR + PREFIX + ".RefPC.coord",
-    output: seq_coord = DIR + PREFIX + ".SeqPC.coord",
-            #ind_cov = DIR + OUT_PREFIX + ".ind.cov",  # When `-cov 1`
-            #loc_cov = DIR + OUT_PREFIX + ".loc.cov",  # When `-cov 1`
-    params: prefix = DIR + PREFIX,
-            conf = DIR + "laser.conf",  # parameterfile
-    shell: "laser \
-                -g {input.geno} \
-                -s {input.seq} \
-                -c {input.ref_coord} \
-                -o {params.prefix} \
-                -p {params.conf}"
-
-rule model_AF:
-    """Model allele frequencies as linear functions of PCs based on the ancestry reference panel."""
-    input: vcf = config["ref_vcf"],  # genotypes of reference individuals (.vcf.gz)
-           ref_coord = DIR + "RefPC.coord",  # PCA coordinates of reference individuals
-    output: DIR + "AF.model",
+rule estimate_relatedness_king:
+    """Estimate relatedness between individuals. It is recommended by KING not to prune or filter any "good" SNPs for this."""
+    input: 
+        bed = config["results"] + "genotypes/pass/plink/{dataset}.{subset}.SNP.autosomal.bed",
+        # bim = config["results"] + "genotypes/plink/{dataset}.{subset}.SNP.autosomal.bim",
+        # fam = config["results"] + "genotypes/plink/{dataset}.{subset}.SNP.autosomal.fam",
+    output:
+        kinship = config["results"] + "kinship/KING/{dataset}.{subset}.SNP.autosomal.kin",
+    params:
+        prefix = config["results"] + "kinship/KING/{dataset}.{subset}.SNP.autosomal",
     threads: 1
-    params: k = CONFIG["dim"],  # Number of PCs used to model AF. Default is 2.
-    shell: "seekin modelAF \
-                -i {input.vcf} \
-                -c {input.ref_coord} \
-                -k {params.k} \
-                -o {output}"
+    resources: nodes = 1
+    conda: "../envs/common.yaml"
+    shell: """
+        king \
+            -b {input.bed} \
+            --kinship \
+            --prefix {params.prefix} \
+        """
 
-rule get_AF:
-    """Estimate individual-specific allele frequencies of study individuals."""
-    input: ref_coord = DIR + PREFIX + ".RefPC.coord",  # coordinates of study individuals in the reference space
-           AFmodel = DIR + "AF.model",
-    output: indivAF = DIR + "indivAF.vcf.gz",
+
+
+
+rule estimate_relatedness_king_per_chr:
+    """Estimate relatedness between individuals."""
+    input: 
+        # bed = config["results"] + "kinship/plink/GBS_WES_WGS.chr{chr}.same_fid.bed",
+        # bim = config["results"] + "kinship/plink/GBS_WES_WGS.chr{chr}.same_fid.bim",
+        # fam = config["results"] + "kinship/plink/GBS_WES_WGS.chr{chr}.same_fid.fam",
+        bed = config["results"] + "genotypes/pass/plink/{dataset}.{subset}.SNP.chr{chr}.bed",
+        bim = config["results"] + "genotypes/pass/plink/{dataset}.{subset}.SNP.chr{chr}.bim",
+        fam = config["results"] + "genotypes/pass/plink/{dataset}.{subset}.SNP.chr{chr}.fam",
+    output:
+        kinship = config["results"] + "kinship/KING/{dataset}.{subset}.SNP.chr{chr}.kin",
+    params:
+        prefix = config["results"] + "kinship/KING/{dataset}.{subset}.SNP.chr{chr}",
     threads: 1
-    params: k = CONFIG["dim"], # Number of PCs used to compute allele frequencies.
-    shell: "seekin getAF \
-                -i {input.ref_coord} \
-                -b {input.AFmodel} \
-                -k {params.k} \
-                -o {output.indivAF}"
+    resources: nodes = 1
+    conda: "../envs/common.yaml"
+    shell: """
+        king \
+            -b {input.bed} \
+            --kinship \
+            --prefix {params.prefix} \
+        """
 
-rule pairwise_kinship:
-    """Estimate relatedness with SEEKIN-het for related individuals and admixture."""
-    input: indivAF = DIR + PREFIX + ".indivAF.vcf.gz",
-           ref_vcf = CONFIG["ref_vcf"],  ## VCF of genotypes or dosages of study individuals
-    output: log = DIR + PREFIX + ".het.log",
-            kin = DIR + PREFIX + ".het.kin",
-            inbreed = DIR + PREFIX + ".het.inbreed",
-            matrix = DIR + PREFIX + ".het.matrix",
-            matrixID = DIR + PREFIX + ".het.matrixID",
-    threads: 10  # Default 10
-    params: prefix = DIR + PREFIX + ".het",
-    shell: "seekin kinship \
-            -i {input.ref_vcf} \
-            -f {input.indivAF} \
-            -p het \
-            -t {threads} \
-            -o {params.prefix}"
+rule king_matrix_inter:
+    """Intermediate step."""
+    input:
+        kinship = config["results"] + "kinship/KING/{dataset}.{subset}.SNP.autosomal.kin",
+    output:
+        matrix = temp(config["results"] + "kinship/KING/{dataset}.{subset}.SNP.autosomal.inter.matrix"),
+    run:
+        import pandas as pd
+        df = pd.read_csv(input.kinship, delimiter='\t')
+
+        # make unique, sorted, common index
+        idx = sorted(set(df['ID1']).union(df['ID2']))
+
+        # reshape
+        (df.pivot(index='ID1', columns='ID2', values='Kinship')
+        .reindex(index=idx, columns=idx)
+        .fillna(0, downcast='infer')  # Change NAs to 0
+        .pipe(lambda x: x+x.values.T)  # Fill in transposed side of table
+        ).to_csv(output.matrix, sep='\t')
+
+# rule king_matrix:
+#     """Set diagonals to 0.5."""
+#     input:
+#         matrix = config["results"] + "kinship/KING/{dataset}.{subset}.SNP.autosomal.inter.matrix",
+#     output:
+#         matrix = config["results"] + "kinship/KING/{dataset}.{subset}.SNP.autosomal.matrix",
+#     shell: """
+#         awk '{{$NR=0.5; print}}' input.matrix \
+#         > {output.matrix} \
+#         """
+
+rule king_matrix_PMx:
+    """Convert KING output into a matrix format required by PMx."""
+    input:
+        matrix = config["results"] + "kinship/KING/{dataset}.{subset}.SNP.autosomal.inter.matrix",
+    output:
+        PMx_matrix = config["results"] + "kinship/KING/{dataset}.{subset}.SNP.autosomal.PMx.matrix",
+    shell: """
+        cut {input.matrix} -f 1 | cut -c 4- | cut -d _ -f 1 \
+        | sed '1d' \
+        >> {output.PMx_matrix}; \
+        cut {input.matrix} \
+            -f 2- \
+        | sed '1d' \
+        | awk '{{$NR=0.5; print}}' \
+        >> {output.PMx_matrix}; \
+        """
+        
 

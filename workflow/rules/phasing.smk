@@ -27,40 +27,6 @@ rule genotype_posteriors:
             -O {output} \
             """
 
-rule genotype_filtration:
-    """Filter genotypes by GQ.
-    This adds the filter tag if fails and sets "./." as new genotype."""
-    wildcard_constraints:
-        chr = "[^X|Y|MT]",  # Only autosomes
-        dataset = "[^_]"  # TODO: Even this isn't working
-    input:
-        vcf = config["results"] + "genotypes/posteriors/{dataset}.{mode}.chr{chr}.vcf.gz",
-        tbi = config["results"] + "genotypes/posteriors/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
-    output:
-        vcf = config["results"] + "genotypes/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
-    params:
-        GQ = config["filtering"]["GQ"],
-        DP = 5,  # I wonder if there is a better way to go about this than just removing these
-    threads: 1
-    resources: nodes = 1
-    conda: "../envs/gatk.yaml"
-    shell: """
-        gatk --java-options "-Xmx8g" VariantFiltration \
-            -V {input.vcf} \
-            --genotype-filter-name "GQ{params.GQ}" \
-            --genotype-filter-expression "GQ < {params.GQ}" \
-            --genotype-filter-name "DP{params.DP}" \
-            --genotype-filter-expression "DP < {params.DP}" \
-            --set-filtered-genotype-to-no-call \
-            -O {output.vcf}"""
-use rule genotype_filtration as genotype_filtration_skipping_refinement with:
-    wildcard_constraints:
-        chr = "X|Y|MT"  # Only non-autosomes
-    input:
-        vcf = config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.vcf.gz",
-        tbi = config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.vcf.gz.tbi",
-
-
 rule genotype_passing:
     """Remove variants that don't have a low alternate allele frequency.
     A min_AC of 1 is necessary to remove ACs that were set to 0 during genotype refinement."""
@@ -70,7 +36,7 @@ rule genotype_passing:
     #     #subset = "[^AMP|GBS|WES|WGS|dedup|temp|left_join]"
     #     #subset = "all|founders|founders24"  # TODO: Generalize this to take anything that is not already used by another rule
     input:
-        vcf = config["results"] + "genotypes/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
+        vcf = config["results"] + "genotypes/posteriors/{dataset}.{mode}.chr{chr}.vcf.gz",
         subpop = lambda wildcards: branch(
             True if "all" not in wildcards.subset else False,
             #then = config["subpop"],
@@ -79,16 +45,21 @@ rule genotype_passing:
     output:
         bcf = config["results"] + "genotypes/pass/{dataset}.{subset}.{mode}.chr{chr}.bcf",
     params:
-        #samples = ','.join(SAMPLES),
+        GQ = config["filtering"]["GQ"],
+        DP = 5,  # I wonder if there is a better way to go about this than just removing these
         min_AF = 0, #config["filtering"]["min_AF"],
         max_AF = 1, #config["filtering"]["max_AF"],
         min_AC = 1, #config["filtering"]["min_AC"],  # Must be 1 or greater
-        subset_samples = lambda wildcards, input: "" if "all" in wildcards.subset else f"-S {input.subpop}",
+        subset_samples = lambda wildcards, input: "" if "all" in wildcards.subset else f"-S {input.subpop} --force-samples",
     threads: 1
     resources: nodes = 1
     # -e 'F_MISSING > 0.1' \
     shell: """
-        bcftools view {input.vcf} \
+        bcftools filter {input.vcf} \
+            -e 'FMT/GQ<{params.GQ} | FMT/DP<{params.DP}' \
+            -S . \
+            -Ou \
+        | bcftools view \
             {params.subset_samples} \
             -Ou \
         | bcftools view \
@@ -236,28 +207,23 @@ rule indiv_vcf:
             -o {output.indiv} \
         """
 
-rule merge_whatshap:
-    input:
-        trios = lambda wildcards: expand(config["results"] + "haplotypes/whatshap/indivs/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz",
-            dataset=wildcards.dataset,
-            sample=SAMPLES,
-            mode=wildcards.mode,
-            chr=wildcards.chr),
-        idxs = lambda wildcards: expand(config["results"] + "haplotypes/whatshap/indivs/chr{chr}/{dataset}.{sample}.{mode}.chr{chr}.vcf.gz.tbi",
-            dataset=wildcards.dataset,
-            sample=SAMPLES,
-            mode=wildcards.mode,
-            chr=wildcards.chr),
-    output:
-        merged = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz",
-    threads: 1
-    resources: nodes = 1
-    conda: "../envs/common.yaml"
-    shell: """
-        bcftools merge {input.trios} \
-            -Oz \
-            -o {output.merged} \
-        """
+# # TODO: Fix variable SAMPLES
+# rule merge_whatshap:
+#     input:
+#         trios = expand(config["results"] + "haplotypes/whatshap/indivs/chr{{chr}}/{{dataset}}.{sample}.{{mode}}.chr{{chr}}.vcf.gz",
+#             sample=SAMPLES),
+#         idxs = expand(config["results"] + "haplotypes/whatshap/indivs/chr{{chr}}/{{dataset}}.{sample}.{{mode}}.chr{{chr}}.vcf.gz.tbi",
+#             sample=SAMPLES),
+#     output:
+#         merged = config["results"] + "haplotypes/whatshap/all/{dataset}.{mode}.chr{chr}.vcf.gz",
+#     threads: 1
+#     resources: nodes = 1
+#     conda: "../envs/common.yaml"
+#     shell: """
+#         bcftools merge {input.trios} \
+#             -Oz \
+#             -o {output.merged} \
+#         """
 
 rule restrict_vcf_seq_type:
     """Create VCF with only one type of sequencing method (e.g., WES, WGS)"""
