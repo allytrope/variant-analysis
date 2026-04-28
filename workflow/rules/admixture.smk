@@ -106,20 +106,34 @@ rule concat_msp:
     #     for file in input.Q:
 
 
+rule symlink_bed:
+    """Create symlink of .bed file with added affix.
+    This is necessary for ADMIXTURE, which determines its
+    output names based on the prefix of the input .bed file."""
+    wildcard_constraints:
+        suffix = "bed|bim|fam"
+    input:
+        bed = config["results"] + "genotypes/pruned/plink/{dataset}.{subset}.{mode}.autosomal.{suffix}",
+    output:
+        bed = config["results"] + "genotypes/pruned/plink/{dataset}.{subset}.{mode}.autosomal.seed{seed}.{suffix}",
+    shell: """
+        ln -s {input.bed} {output.bed};
+        """
+
 ## Unsuperived admixture using ADMIXTURE
 rule unsupervised_ADMIXTURE:
     """Cluster samples by ancestry in an unsupervised manner."""
     input:
-        bed = config["results"] + "genotypes/pruned/plink/{dataset}.{subset}.{mode}.autosomal.bed",
-        bim = config["results"] + "genotypes/pruned/plink/{dataset}.{subset}.{mode}.autosomal.bim",
-        fam = config["results"] + "genotypes/pruned/plink/{dataset}.{subset}.{mode}.autosomal.fam",
+        bed = config["results"] + "genotypes/pruned/plink/{dataset}.{subset}.{mode}.autosomal.seed{seed}.bed",
+        bim = config["results"] + "genotypes/pruned/plink/{dataset}.{subset}.{mode}.autosomal.seed{seed}.bim",
+        fam = config["results"] + "genotypes/pruned/plink/{dataset}.{subset}.{mode}.autosomal.seed{seed}.fam",
     output:
         # q = config["results"] + "genotypes/pruned/plink/{dataset}.{subset}.{mode}.autosomal.{clusters}.Q",
         # p = config["results"] + "genotypes/pruned/plink/{dataset}.{subset}.{mode}.autosomal.{clusters}.P",
         # log = config["results"] + "genotypes/pruned/plink/{dataset}.{subset}.{mode}.autosomal.{clusters}.log",
-        q = config["results"] + "admixture/ADMIXTURE/unsupervised/{dataset}.{subset}.{mode}.autosomal.{clusters}.Q",
-        p = config["results"] + "admixture/ADMIXTURE/unsupervised/{dataset}.{subset}.{mode}.autosomal.{clusters}.P",
-    log: config["results"] + "admixture/ADMIXTURE/unsupervised/{dataset}.{subset}.{mode}.autosomal.{clusters}.log",
+        q = config["results"] + "admixture/ADMIXTURE/unsupervised/{dataset}.{subset}.{mode}.autosomal.seed{seed}.{clusters}.Q",
+        p = config["results"] + "admixture/ADMIXTURE/unsupervised/{dataset}.{subset}.{mode}.autosomal.seed{seed}.{clusters}.P",
+    log: config["results"] + "admixture/ADMIXTURE/unsupervised/{dataset}.{subset}.{mode}.autosomal.seed{seed}.{clusters}.log",
     # params:
     #     #prefix = lambda wildcards, input: ".".join(input.bed.split(".")[0:-1])
     #     path = config["results"] + "genotypes/pruned/plink",
@@ -133,10 +147,10 @@ rule unsupervised_ADMIXTURE:
     shell: """
         admixture {input.bed} {wildcards.clusters} \
             -j{threads} \
-            -s 899 \
+            -s {wildcards.seed} \
             --cv > {log}; \
-        mv {wildcards.dataset}.{wildcards.subset}.{wildcards.mode}.autosomal.{wildcards.clusters}.Q {output.q}; \
-        mv {wildcards.dataset}.{wildcards.subset}.{wildcards.mode}.autosomal.{wildcards.clusters}.P {output.p}; \
+        mv {wildcards.dataset}.{wildcards.subset}.{wildcards.mode}.autosomal.seed{wildcards.seed}.{wildcards.clusters}.Q {output.q}; \
+        mv {wildcards.dataset}.{wildcards.subset}.{wildcards.mode}.autosomal.seed{wildcards.seed}.{wildcards.clusters}.P {output.p}; \
         """
 
 
