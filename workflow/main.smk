@@ -1,6 +1,4 @@
-"""Beginning of execution for `snakemake` command and start of workflow.
-To change the output produced by the command, add required files to `input` under `rule all`.
-The corresponding config file for the project can be written under `configfile`."""
+"""Helpful functions, variables, wildcard constraints, and `include`s for rules."""
 
 import sys
 sys.path.insert(0, "./config")
@@ -80,73 +78,69 @@ def collect_samples(fmt, col=None, val=None):
 #     tmp = 1
 # SAMPLES = sorted(list(set([('_').join(run.split('/')[-1].split('_')[0:tmp]) for run in SAMPLE_RUNS])))
 
+# TODO
+# intervals = pl.read_csv(config["resources"] + "ref_fna/contig_intervals.tsv",
+#     separator= "\t", columns=["contig", "start", "end"],
+#     schema_overrides={"contig": pl.String, "start": pl.Int64, "end": pl.Int64}).with_columns(
+#         interval = pl.concat_str([pl.col("contig"), pl.lit(":"), pl.col("start"), pl.lit("-"), pl.col("end")]
+#     ))
 
-# Create list of chromosomes. May require running Snakemake once to create these files and then again to use them in rules.
-contigs_file = config["resources"] + "ref_fna/contigs.list"
-if Path(contigs_file).is_file():
-    with open(contigs_file) as f:
-        CONTIGS = f.read().splitlines()
-else:
-    CONTIGS = []
-
-chromosomes_file = config["resources"] + "ref_fna/chromosomes.list"
-if Path(chromosomes_file).is_file():
-    with open(chromosomes_file) as f:
-        CHROMOSOMES = f.read().splitlines()
-else:
-    CHROMOSOMES = []
-
-autosomes_file = config["resources"] + "ref_fna/autosomes.list"
-if Path(autosomes_file).is_file():
-    with open(autosomes_file) as f:
-        AUTOSOMES = f.read().splitlines()
-else:
-    AUTOSOMES = []
+demographics = pl.read_csv(config["demographics"],
+    separator= "\t", columns=["Id", "Sex"], schema_overrides={"Id": pl.String})
 
 # For commands that use bash specific syntax, these have to be activated. Although they may only work with the bio environment.
 #shell.executable("/bin/bash")
 #shell.prefix("source ~/.bash_profile; ")
 
 wildcard_constraints:
-    dataset = r"\w+",
+    chr = r"[0-9XYMT]+",
+    dataset = r"[A-Za-z0-9\+_\.-]+", #r"\w+",
     filter_method = "hard_filtered|VQSR",
     indiv = r"[A-Za-z0-9\-]+",
+    interval = r"[]",
     mode = "SNP|indel|both",
-    name = r"[A-Za-z0-9_\.-]+",
-    prefix = r"[A-Za-z0-9_/-]+",
-    path = r"[A-Za-z0-9_/\.-]+",
+    name = r"[A-Za-z0-9_\.\-\+]+",
+    prefix = r"[A-Za-z0-9_/\-\+]+",
+    path = r"[A-Za-z0-9\+_/\.-]+",
     #run = r"[A-Za-z0-9_-]+",
     #sample = r"\w+",
     sample1 = r"\w+",
     sample2 = r"\w+",
     seq = "WGS|lpWGS|WES|GBS|AMP|merged",
+    start = r"[0-9]+",
+    end = r"[0-9]+",
     #library = r"[A-Za-z0-9]+_[A-Za-z0-9]+",
     library = r"[A-Za-z0-9-]+",
     workspace=r"[A-Za-z0-9_\.]+",
 
 #include: "rules/directory_structure.smk"
+include: "shortcuts.smk"
 include: "rules/sra.smk"
 #include: "rules/functions.smk"
 include: "rules/indices.smk"
-include: "rules/compression.smk"
 include: "rules/quality_control.smk"
 include: "rules/align.smk"
 include: "rules/variant_calling.smk"
 #include: "rules/variant_recalibration.smk"
 include: "rules/hard_filter.smk"
-include: "rules/pedigree.smk"
+include: "rules/pedigree_reconstruction.smk"
 #include: "rules/sra.smk"
 #include: "rules/octopus.smk"
 include: "rules/phasing.smk"
-#include: "rules/subset_samples.smk"
-#include: "rules/imputation.smk"
+include: "rules/compression/compress_fastqs.smk"
+include: "rules/compression/compress_vcfs.smk"
+include: "rules/samples/subset_samples.smk"
+include: "rules/samples/superset_samples.smk"
+include: "rules/plink.smk"
+include: "rules/imputation.smk"
 include: "rules/annotation.smk"
+include: "rules/liftover.smk"
 #include: "rules/gwas.smk"
 #include: "rules/gene_counts.smk"
 include: "rules/inbreeding.smk"
 include: "rules/kinship.smk"
 #include: "rules/laser.smk"
-#include: "rules/relations.smk"
+include: "rules/relations.smk"
 include: "rules/stats/TajimaD.smk"
 include: "rules/stats/rare_variant_tests.smk"
 include: "rules/scikit-allel.smk"
@@ -166,86 +160,28 @@ include: "rules/misc.smk"
 #ruleorder: vcfgz_to_bcf > call_SVs
 #ruleorder: cut_adapters_with_i5_i7_genozipped > cut_adapters_with_i5_i7
 
-
-## Output shortcuts
-# A test
-test = config["results"] + "test/test.txt"
-
-# Create post-processed BAMs
-bams = expand(config["results"] + "alignments/markdup/{collect}.bam",
-    collect=collect_samples(fmt="{batch}/{seq}{indiv}_{library}_{flowcell_lane}"))
-
-# Create gVCFs through GATK by library
-gvcfs = expand(config["results"] + "gvcf/{collect}.chr{chr}.g.vcf.gz",
-    collect=collect_samples(fmt="{batch}/{seq}{indiv}_{library}"),
-    chr=AUTOSOMES)
-
-# Create GenomicsDB datastore. Also for when updating the datastore with new samples
-datastore = expand(config["results"] + "db/{dataset}/completed/{chr}.txt",
-    dataset=config['dataset'],
-    chr=AUTOSOMES)
-
-# Create joint-called VCF through GATK
-joint_called = expand(config["results"] + "joint_call/polyallelic/{dataset}.chr{chr}.vcf.gz",
-    dataset=config['dataset'],
-    chr=AUTOSOMES)
-
-filtered_vcf = expand(config["results"] + "genotypes/filtered/{dataset}.SNP.chr{chr}.vcf.gz",
-    dataset=config['dataset'],
-    chr=AUTOSOMES)
-
-pass_vcf = expand(config["results"] + "genotypes/pass/{dataset}.all.SNP.chr{chr}.bcf",
-    dataset=config['dataset'],
-    chr=AUTOSOMES)
-
-Clinvar_tsv = expand(config["results"] + "liftover/rheMac10ToHg38/annotated/{dataset}.all2.SNP.chr{chr}.tsv",
-    dataset=config['dataset'],
-    chr=AUTOSOMES)
-
-king_relatedness = expand(config["results"] + "kinship/KING/{dataset}.all.SNP.autosomal.kin",
-    dataset=config['dataset'])
-
-# Format required by PMx
-king_relatedness_PMx = expand(config["results"] + "kinship/KING/{dataset}.{subset}.SNP.autosomal.PMx.matrix",
-    # subset='all',
-    subset='founders',
-    dataset=config['dataset'])
-
-# fROH - use in ROH/fROH_bcftools.ipynb
-froh = expand(config["results"] + "roh/bcftools/{dataset}.{subset}.chr{chrom}.RG.roh",
-    dataset=config['dataset'],
-    subset="all",
-    chrom=AUTOSOMES)
-
-#GCTA
-inbreeding = expand(config["results"] + "inbreeding/GCTA/pass/{dataset}.{subset}.ibc",
-    dataset=config['dataset'],
-    #subset=config['subpops']
-    subset="all")
-
-# heterozygosity
-heterozygosity = config["results"] + 'heterozygosity/gvcf_counts.het',
-
-
 # import polars as pl
 # srr_ids = list(pl.read_csv("/master/abagwell/variant-analysis/resources/rhesus/samples/X202SC22011650-Z01-F001.srr.list", separator='\t')["srr"])
 
-rule all:
-    """Generate target files. This rule runs automatically when Snakefile is run.
-    Add or modify the paths under `input` to change the target files generated by snakemake.
-    """
-    input:
-        # Input for generating README.md file
-        #config["results"] + "README.md",
-        #pass_vcf,
-        #inbreeding, froh, king_relatedness,
-        #king_relatedness_PMx,
-        pass_vcf,
-        # expand("/master/abagwell/workspace/SRA/verifying_MD5/X202SC22011650-Z01-F001/{accession}_{read}.no_header_md5sum.tsv",
-        #     accession=srr_ids,
-        #     read=["1", "2"]),
-        config["resources"] + "ref_fna/autosomes.list",
-        #config["target_files"],
+# rule all:
+#     """Generate target files. This rule runs automatically when Snakefile is run.
+#     Add or modify the paths under `input` to change the target files generated by snakemake.
+#     """
+#     input:
+#         # Input for generating README.md file
+#         config["target_files"],
+#         #config["results"] + "README.md",
+#         #pass_vcf,
+#         #expand(config["resources"] + "subpop/{colony}.samples.list", colony=["rh_SPF_U42", "rh_P51"]),        
+#         # expand(config["results"] + "genotypes/pass/{dataset}.{subset}.SNP.dedup_samples.list",
+#         #     dataset=config['dataset'],
+#         #     subset=config['subset'])
+#         # expand(config["results"] + "genotypes/annotated/bcsq/{dataset}.{subset}.SNP.chr{chr}.tsv",
+#         #     dataset=config['dataset'],
+#         #     subset=config['subset'],
+#         #     chr=AUTOSOMES)
+#         #king_relatedness_PMx
+
 
 
         
