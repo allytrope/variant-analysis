@@ -23,9 +23,9 @@ Other necessary libraries have packages and versions stored in `workflow/envs`. 
 
 # Configuration
 
-Configuration settings are set with a `.py` file inside the directory `config`. By default, the file `template.py` is active. This can be copied and renamed to create multiple config files for convenient testing with different datasets. The name of the desired config file for a particular run, however, should be set in `workflow/Snakefile` on the line that says `from template import __dict__ as config`. For example, say we create a new config `rhesus.py`. This file would then be imported by changing `template` in that line to `rhesus`.
+Configuration settings are set with a `.yaml` file inside the directory `config`. This can be copied and renamed to create multiple config files for convenient testing with different datasets. The name of the desired config file for a particular run, however, should be set in `workflow/Snakefile` on the line that says `from template import __dict__ as config`. For example, say we create a new config `rhesus.yaml`. This file would then be imported by changing `template` in that line to `rhesus`.
 
-Initial required files to add to config file for first steps of variant calling are the following.
+Initial required files to add to config file for first steps of variant calling include the following.
 * Species reference genome
 * Raw FASTQ files (ending with `R1.fastq.gz` and `R2.fastq.gz`)
 
@@ -36,58 +36,27 @@ Also, be sure to set the value for `path` for where the `resources/` and `result
 
 ## Setting Target Files
 
-In addition to setting input files and variables inside the config files, target outputs (the files that we want to generate) must also be listed. These are listed inside the variable `target_files`. When we run, Snakemake will create the files (as well as any intermediates) based on what is listed there.
+In addition to setting input files and variables inside the config files, target outputs (the files that we want to generate) must also be listed. These are listed inside `Snakefile` under `rule all`. When we run, Snakemake will create the files (as well as any intermediates) based on what is listed there.
 
-Writing the output files requires finding the rule in `workflow/rules/` for what files are wanted and copying the `output`. For instance, if I want to make BAM files, I can find the corresponding `rule align`, which is in `variant_calling.smk` and find:
+I wrote a list of shortcut variable names that can be used to quickly list targets. Otherwise if not there, writing the output files requires finding the rule in `workflow/rules/` for what files are wanted and copying the `output`. For instance, if I want to make BAM files, I can find the corresponding `rule align`, which is in `variant_calling.smk` and find:
 
 ```py
 output:
     alignment = config["results"] + "alignments/raw/{batch}/{sample}.bam",
 ```
 
-Now, place that inside list of target files back inside our `Snakefile`, making sure to replace `config["results"]` with just `results`. Also replace `{sample}` with the actual sample name that we are interested in.
+Now, place that inside list of target files back inside our `Snakefile`.
+An efficient way is to utilize the `expand` function:
 
 ```py
-target_files = [
-        results + "alignments/raw/example_batch/WGS12345.bam",
-]
-```
-
-Often, many samples will be worked on at the same time. To facilitate this, we could just add more to the target list like so:
-
-```py
-target_files = [
-        results + "alignments/raw/example_batch/WGS12345.bam",
-        results + "alignments/raw/example_batch/WGS23456.bam",
-]
-```
-
-Although a more efficient way is to utilize the `expand` function:
-
-```py
-target_files = [
-        expand(results + "alignments/raw/example_batch/{sample}.bam", sample=[12345, 23456]),
-]
-```
-
-A couple convenience functions are preset, `SAMPLES()`, `SAMPLE_RUNS()` and `CHROMOSOMES()`. `SAMPLE_RUNS()` gathers all of the sample names listed in `config["runs"]`. `SAMPLES()` groups the values from `SAMPLE_RUNS()` per sample. And `CHROMOSOMES()` stores all autosomes plus X, Y and MT if in the reference genome.
-```py
-target_files = [
-        expand(results + "alignments/raw/example_batch/{sample}.bam", sample=SAMPLES()),
-]
+rule all:
+        expand(config[results] + "alignments/raw/example_batch/{sample}.bam", sample=[12345, 23456]),
 ```
 
 As another example, to create genotyped VCFs for each chromosome, we can look at `rule genotype_passing`:
 ```py
 output:
     config["results"] + "genotypes/pass/{dataset}.{mode}.chr{chr}.vcf.gz",
-```
-
-For our config file, we could have the following below. `{dataset}` can essentially be named anything, just be consistent. Modifying this same is helpful if we want to have multiple parallel analyses when tweaking parameters. Currently, this workflow only works with `{mode}` set to SNP. This `mode` is for future integration with indels or indels and SNPs together.
-```py
-target_files = [
-    expand(results + "genotypes/pass/rhesus.SNP.chr{chr}.vcf.gz", chr=CHROMOSOMES()),
-]
 ```
 
 # Running
@@ -122,7 +91,6 @@ Make sure to create the directories in which the log files will be placed prior 
 
 
 # Common Errors
-
 `Error: Directory cannot be locked` - All that is required is to add `--unlock` to command from earlier as below. Then, once that finishes, run again without the `--unlock` option.
 ```sh
 NAME=smk_variant; LOG=log/dirname; nohup snakemake --use-conda --cluster "qsub -V -b n -cwd -pe smp {threads} -N $NAME -o $NAME.out.log -e $NAME.err.log" -j 20 --unlock > $LOG/$NAME.smk.log 2>&1

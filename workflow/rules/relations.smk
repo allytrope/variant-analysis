@@ -92,8 +92,8 @@ rule nucleotide_divergence_VCFtools:
 
 rule inbreeding_coefficient:
     """Calculate inbreeding coefficient, which is a measure of heterozygosity per-individual."""
-    input: vcf = config["results"] + "genotypes/pass/{dataset}.common_between_founding_cohorts.SNP.autosomal.bcf",
-    output: het = config["results"] + "kinship/het/{dataset}.common_between_founding_cohorts.het",
+    input: vcf = config["results"] + "genotypes/pass/{dataset}.{subset}.SNP.autosomal.bcf",
+    output: het = config["results"] + "kinship/het/{dataset}.{subset}.het",
     threads: 1
     resources: nodes = 1
     conda: "../envs/common.yaml"

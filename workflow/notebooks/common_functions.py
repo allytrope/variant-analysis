@@ -17,8 +17,8 @@ import yaml
     # # Output path
     # output_dir = "/master/abagwell/variant-analysis/results/rhesus/heterozygosity/plots"
 
-# Read config file. User should update this file path as needed
-configfile = "/master/abagwell/workspace/github_project/variant-analysis/config/rhesus.yaml"
+# Read config file. NOTE: User should update this file path as needed
+configfile = "/master/abagwell/workspace/github_project/variant-analysis/config/rhesus_old.yaml"
 with open(configfile, 'r') as file:
     config = yaml.safe_load(file)
 
@@ -27,12 +27,14 @@ with open(configfile, 'r') as file:
 
     # Load cohorts
     colonies_file = config["cohorts"]
-    colonies = pl.read_csv(colonies_file, separator="\t", comment_prefix="#", schema_overrides={"Id": pl.String}).select("Id", "Cohort").unique()
+    colonies = pl.read_csv(colonies_file, separator="\t", comment_prefix="#", schema_overrides={"Id": pl.String}, columns=["Id", "Cohort"]).unique()
+
 
 def load_tsv(input_file, indiv_col, value_cols, seq_type="WGS"):
     """Load file and do initial processing.
     
-    seq_type: Seq type to filter on. WES and WGS are not compatible. WES has higher heterozygosity
+    seq_type: Seq type to filter on. WES and WGS are not compatible. WES has higher heterozygosity.
+        Use '.*' to ignore sequencing type (is useful when sample names don't have sequencing type)
     """
 
     return pl.read_csv(input_file,
@@ -40,15 +42,18 @@ def load_tsv(input_file, indiv_col, value_cols, seq_type="WGS"):
         schema_overrides={indiv_col: pl.String}
     ).with_columns(
         Seq = pl.col(indiv_col).str.slice(0, 3),
-        #   ).str.strip_prefix("WES"
-        #   ).str.strip_prefix("WGS"
-        #   ).str.strip_prefix("AMP"
-        #   ).str.strip_prefix("GBS"
-        Indiv = pl.col(indiv_col).str.split('_').list.get(0).str.slice(3),
+        Indiv = pl.col(indiv_col).str.split('_').list.get(0
+          ).str.strip_prefix("WES"
+          ).str.strip_prefix("WGS"
+          ).str.strip_prefix("lrWGS"
+          ).str.strip_prefix("AMP"
+          ).str.strip_prefix("GBS"
+        )
     ).drop(indiv_col
     # Filter to one type of sequencing
     ).filter(
-        pl.col("Seq") == seq_type
+        # NOTE: Uses "contains" here instead of "==" to allow for using regex like ".*"
+        pl.col("Seq").str.contains(seq_type)
     # Deduplicate individuals
     ).group_by('Indiv').agg(pl.first('*')
     # Join cohort info
@@ -73,6 +78,47 @@ def load_tsv(input_file, indiv_col, value_cols, seq_type="WGS"):
     ).explode(pl.exclude("color_idx")
     ).explode(pl.exclude("Cohort", "color_idx"))
 
+
+def preprocess_df(df, indiv_col, value_cols, seq_type="WGS"):
+    """Basically just skips the first step of the above function."""
+    return df.with_columns(
+        Seq = pl.col(indiv_col).str.slice(0, 3),
+        Indiv = pl.col(indiv_col).str.split('_').list.get(0
+            ).str.strip_prefix("WES"
+            ).str.strip_prefix("WGS"
+            ).str.strip_prefix("lrWGS"
+            ).str.strip_prefix("AMP"
+            ).str.strip_prefix("GBS"
+        )
+    ).drop(indiv_col
+    # Filter to one type of sequencing
+    ).filter(
+        # "contains" is used instead of "==" to allow for using ".*" as the seq_type
+        # when sample names don't have the sequencing type included.
+        pl.col("Seq").str.contains(seq_type)
+    # Deduplicate individuals
+    ).group_by('Indiv').agg(pl.first('*')
+    # Join cohort info
+    ).join(colonies, left_on='Indiv', right_on='Id'
+    ).with_columns(
+        pl.col('Cohort').cast(pl.Enum( 
+            list(colors["Cohort"])
+        )),
+    ).group_by("Cohort").agg(*value_cols, 'Indiv'
+    ).with_row_index("pop_idx", offset=1).with_columns(
+        # Find which are year ranges
+        is_year = pl.col("Cohort").cast(pl.String).str.contains("-").not_().cast(pl.Int8)
+    ).with_columns(
+        # Set the index of year ranges to 0
+        pl.col("pop_idx").mul("is_year")
+    ).drop("is_year").sort("Cohort"
+    ).group_by(
+        # Create color index
+        "pop_idx", maintain_order=True
+    ).agg('*').with_row_index("color_idx"
+    ).drop("pop_idx"
+    ).explode(pl.exclude("color_idx")
+    ).explode(pl.exclude("Cohort", "color_idx"))
 
 def df_with_trios(df, value_col):
     # Read pedigree to find trios
@@ -104,13 +150,19 @@ def add_parental_cohorts(df, indiv_col, value_col, original_df):
     )
 
     return pl.concat([colonies, sires_df, dams_df]
-    ).join(original_df.select("color_idx", indiv_col, value_col), left_on="Id", right_on=indiv_col, how="left"
-    ).filter(pl.col(value_col).is_not_null()).unique().rename({"Id": "Indiv"})
+        ).join(original_df.select("color_idx", indiv_col, value_col),
+            left_on="Id", right_on=indiv_col, how="left"
+        ).filter(pl.col(value_col).is_not_null()).unique().rename({"Id": "Indiv"}
+    )
 
-def plot_boxplot(df, value_col):
+def plot_boxplot(df, value_col, log=False):
+    if log:
+        y_title = f"log₂({value_col})"
+    else:
+        y_title = value_col
     return alt.Chart(df).mark_boxplot().encode(
         alt.X('Cohort', title='Cohort', sort=colors["Cohort"]),
-        alt.Y(value_col, title=value_col).scale(zero=False), 
+        alt.Y(value_col, title=y_title).scale(zero=False), 
         alt.Color('Cohort:N', legend=None,).scale(
             domain = list(colors["Cohort"]),
             range = list(colors["Color"])
@@ -129,7 +181,9 @@ def plot_violinplot(df, df_with_parental_cohorts, value_col):
     error_unit = 'stderr' # Can switch extent to `stdev`, `stderr`, or `ci`
 
     # Find ceiling and floor for plot
-    max_y = df.select(pl.col(value_col).max().mul(1000).ceil().truediv(1000)).item()
+    # max_y = df.select(pl.col(value_col).max().mul(1000).ceil().truediv(1000)).item()
+    max_y = df.select(pl.col(value_col).max().mul(10).ceil().truediv(10)).item()
+    # max_y = df.select(pl.col(value_col).max().truediv(1.00005).ceil().mul(1.00005)).item()
     min_y = df.select(pl.col(value_col).min().mul(1000).floor().truediv(1000)).item()
 
     violin = alt.Chart().transform_density(
@@ -143,7 +197,7 @@ def plot_violinplot(df, df_with_parental_cohorts, value_col):
             .title(None)
             .axis(labels=False, values=[0], grid=False, ticks=True)
             .scale(nice=False,zero=False),
-        alt.Y(f"{value_col}:Q", title=value_col),#.scale(domain=[min_y, max_y]),
+        alt.Y(f"{value_col}:Q", title=value_col).scale(domain=[min_y, max_y]),
         # alt.Column("Cohort:N", title="Cohort",
         #       # TODO: Generalize this
         #     ).spacing(0).header(titleOrient='bottom', labelOrient='bottom', labelPadding=0),
@@ -170,27 +224,32 @@ def plot_violinplot(df, df_with_parental_cohorts, value_col):
         # .filter(
         # #     # pl.col("Cohort").is_in(["2018-2020", "Offspring of merger", "NEPRC source"]))
         #     pl.col("Cohort").is_in(["Conventional source", "Brooks source", "NEPRC source"]))
-    ).facet(
-        #column='Cohort'
-        alt.Column('Cohort',
-            header=alt.Header(
-                labelOrient='bottom', labelPadding=0, labelAnchor='middle', labelAngle=-90, labelBaseline="middle", labelAlign="right",
-                title='Cohort', titleAlign="center", titleOrient='bottom', ),
-            sort=colors["Cohort"]
-        )
-    ).resolve_scale(x=alt.ResolveMode("independent")
-    ).configure_facet(
-        spacing=0,
-    ).configure_title(anchor='middle').properties(
-        title=[f"{value_col} in Cohorts"]
+        ).facet(
+            #column='Cohort'
+            alt.Column('Cohort',
+                header=alt.Header(
+                    labelOrient='bottom', labelPadding=0, labelAnchor='middle', labelAngle=-90, labelBaseline="middle", labelAlign="right",
+                    title='Cohort', titleAlign="center", titleOrient='bottom', ),
+                sort=colors["Cohort"]
+            )
+        ).resolve_scale(x=alt.ResolveMode("independent")
+        ).configure_facet(
+            spacing=0,
+        ).configure_title(anchor='middle').properties(
+            title=[f"{value_col} in Cohorts"]
     )
 
-def plot_lineplot(df, final_value_col, inverse=False):
+def plot_lineplot(df, final_value_col, inverse=False, log=False):
     # Remove "U42 sires" since they are already included under "U42"
     simplified_colors = colors.filter(~pl.col("Cohort").is_in(["U42 sires", "CPRC dams"]))
 
     max_y = df.select(pl.col(final_value_col).max().mul(1000).ceil().truediv(1000)).item()
     min_y = df.select(pl.col(final_value_col).min().mul(1000).floor().truediv(1000)).item()
+
+    if log:
+        y_title = f"log₂({final_value_col})"
+    else:
+        y_title = final_value_col
 
     # Plot trios to more easily compare offspring to parents
     return alt.Chart(df).mark_line().encode(

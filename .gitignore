@@ -1,7 +1,14 @@
 .DS_Store
 .snakemake
-config/Mmul_8.yaml
-extra_code.sh
+config/__pycache__/
+extra
 resources
 results
-run_snakemake.sh
+# pixi environments
+.pixi
+*.egg-info
+.vscode/
+nohup.out
+workflow/one_off.smk
+settings.json
+STDOUT_warnings.txt
