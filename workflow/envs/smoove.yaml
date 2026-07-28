@@ -1,0 +1,22 @@
+# Conda environment for smoove
+
+name: smoove
+channels:
+- bioconda
+
+dependencies:
+# - bioconda::bcftools
+- bioconda::cutefc
+- bioconda::cutesv
+# - bioconda::duphold
+# - bioconda::gsort
+# - bioconda::htslib
+# - bioconda::mosdepth
+# - bioconda::pysam
+- bioconda::pbsv=2.10  # 2.11 seemed to be broken, not having any output, but also not erroring
+#- bioconda::samtools
+# - bioconda::smoove
+- bioconda::sniffles
+- bioconda::survivor
+# - bioconda::svtools
+# - bioconda::svtyper

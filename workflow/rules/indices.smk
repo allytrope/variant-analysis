@@ -9,6 +9,27 @@ rule index_ref:
     conda: "../envs/common.yaml"
     shell: "bwa index {input}"
 
+rule index_ref_mmi:
+    """Create .mmi index, which is used by pbmm2."""
+    input: config["ref_fasta"],
+    output: config["ref_fasta"] + ".mmi",
+    threads: 1
+    resources: nodes = 1
+    conda: "../envs/align.yaml"
+    shell: "pbmm2 index {input} {output}"
+
+# Does the same thing as the pbmm2 version
+# rule minimap_index:
+#     """Create .mmi index of reference fasta for Minimap2."""
+#     input:
+#         ref_fasta = config["ref_fasta"],
+#     output:
+#         mmi = config["ref_fasta"] + ".mmi",
+#     shell: """
+#         minimap2 {ref.fasta} \
+#             -d {output.mmi} \
+#         """
+
 rule fai_index:
     """Create .fai index for .fna.gz file. Must be bgzipped."""
     wildcard_constraints:
@@ -63,17 +84,6 @@ rule create_ref_dict:
     shell: "gatk CreateSequenceDictionary \
             -R {input.fasta}"
 
-rule minimap_index:
-    """Create .mmi index of reference fasta for Minimap2."""
-    input:
-        ref_fasta = config["ref_fasta"],
-    output:
-        mmi = config["ref_fasta"] + ".mmi",
-    shell: """
-        minimap2 {ref.fasta} \
-            -d {output.mmi} \
-        """
-
 rule bai_index:
     """Create .bai index for .bam file."""
     input: "{path}/{name}.bam",
@@ -93,6 +103,15 @@ rule tbi_index:
     shell: "bcftools index {input} \
                 --tbi"
 
+rule tbi_index_on_svsig:
+    """Create .tbi index for .svsig.gz file."""
+    input: "{path}/{name}.svsig.gz",
+    output: "{path}/{name}.svsig.gz.tbi",
+    threads: 1
+    resources: nodes = 1
+    conda: "../envs/common.yaml"
+    shell: "tabix -c '#' -s 3 -b 4 -e 4 {input}"
+
 rule csi_index:
     """Create .csi index."""
     wildcard_constraints:
@@ -100,7 +119,10 @@ rule csi_index:
     input: "{path}/{name}.{ext}",
     output: "{path}/{name}.{ext}.csi",
     threads: 1
-    resources: nodes = 1
+    resources:
+        nodes = 1,
+        mem_mb = 1000,
     conda: "../envs/common.yaml"
+    priority: -10
     shell: "bcftools index {input} \
                 --csi"

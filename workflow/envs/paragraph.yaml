@@ -1,0 +1,9 @@
+# Conda environment for non-GATK tools
+
+name: paragraph
+channels:
+- bioconda
+
+dependencies:
+- bioconda::paragraph
+- bioconda::pysam

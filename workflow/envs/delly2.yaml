@@ -5,6 +5,18 @@ channels:
 - bioconda
 
 dependencies:
-- bioconda::delly=1.2.6
-- bioconda::cyvcf2
-- bioconda::samtools
+# - bioconda::bcftools
+- bioconda::delly>=2.5
+# - bioconda::duphold
+# - bioconda::cyvcf2
+# - bioconda::gsort
+# - bioconda::htslib
+# - bioconda::mosdepth
+# - bioconda::pysam=0.22
+# - conda-forge::python=3.10
+# - bioconda::samtools
+# - bioconda::smoove=0.2.8
+- bioconda::survivor
+- bioconda::truvari>=5.4
+# - bioconda::svtools
+# - bioconda::svtyper

@@ -15,7 +15,7 @@ rule genotype_posteriors:
         #ped = config["resources"] + "pedigree/trios.ped",
         #ped = config["resources"] + "pedigree/plink.ped",
     output:
-        config["results"] + "genotypes/posteriors/{dataset}.{mode}.chr{chr}.vcf.gz",
+        temp(config["results"] + "genotypes/posteriors/{dataset}.{mode}.chr{chr}.vcf.gz"),
     threads: 1
     resources: nodes = 1
     conda: "../envs/gatk.yaml"

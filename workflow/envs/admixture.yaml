@@ -1,0 +1,14 @@
+# Conda environment for admixture
+
+name: admixture
+channels:
+- bioconda
+- conda-forge
+
+dependencies:
+- bioconda::admixture
+- bioconda::bcftools
+- bioconda::csvtk
+- bioconda::htslib # Required by pixy
+- bioconda::rfmix=2.03
+- conda-forge::pixy

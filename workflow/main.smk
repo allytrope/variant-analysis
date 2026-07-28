@@ -106,9 +106,10 @@ wildcard_constraints:
     #sample = r"\w+",
     sample1 = r"\w+",
     sample2 = r"\w+",
-    seq = "WGS|lpWGS|WES|GBS|AMP|merged",
+    seq = "LRS|WGS|lpWGS|WES|GBS|AMP|merged",
     start = r"[0-9]+",
     end = r"[0-9]+",
+    tool = r"\w+",
     #library = r"[A-Za-z0-9]+_[A-Za-z0-9]+",
     library = r"[A-Za-z0-9-]+",
     workspace=r"[A-Za-z0-9_\.]+",
@@ -127,6 +128,12 @@ include: "rules/pedigree_reconstruction.smk"
 #include: "rules/sra.smk"
 #include: "rules/octopus.smk"
 include: "rules/phasing.smk"
+
+# Structural variants
+include: "rules/structural_variants/long-read_SV_calling.smk"
+include: "rules/structural_variants/short-read_SV_calling.smk"
+include: "rules/structural_variants/merging_SVs.smk"
+
 include: "rules/compression/compress_fastqs.smk"
 include: "rules/compression/compress_vcfs.smk"
 include: "rules/samples/subset_samples.smk"

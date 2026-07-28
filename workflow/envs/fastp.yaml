@@ -1,0 +1,6 @@
+name: fastp
+channels:
+- bioconda
+
+dependencies:
+- bioconda::fastp

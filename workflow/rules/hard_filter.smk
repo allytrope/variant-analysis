@@ -6,7 +6,7 @@ rule pass_only_hard_filter:
         #vcf = config["results"] + "{filter_method}/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
         bcf = config["results"] + "joint_call/biallelic/{dataset}.{mode}.chr{chr}.bcf",
     output:
-        bcf = config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.vcf.gz",
+        bcf = temp(config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.vcf.gz"),
     params:
         # Filters copied from https://gatk.broadinstitute.org/hc/en-us/articles/360035531112--How-to-Filter-variants-either-with-VQSR-or-by-hard-filtering
         QUAL = 30, #CONFIG["QUAL"],
@@ -16,7 +16,7 @@ rule pass_only_hard_filter:
         MQ = 40, #CONFIG["MQ"],
         MQRankSum = -12.5, #CONFIG["MQRankSum"],
         ReadPosRankSum = -8, #CONFIG["ReadPosRankSum"],
-    log: config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.log",
+    log: temp(config["results"] + "hard_filtered/pass/{dataset}.{mode}.chr{chr}.log"),
     threads: 1
     resources: nodes = 1
     conda: "../envs/common.yaml"

@@ -1,0 +1,9 @@
+name: bio
+channels:
+- bioconda
+- conda-forge
+
+dependencies:
+- bioconda::bwa=0.7.18
+#- bioconda::bwa-mem2=2
+- bioconda::pbmm2=26.1.99

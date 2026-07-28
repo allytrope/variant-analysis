@@ -1,0 +1,11 @@
+name: graph
+channels:
+  - conda-forge
+  - bioconda
+
+dependencies:
+  - conda-forge::altair
+  - conda-forge::ipykernel
+  - conda-forge::pandas
+  - conda-forge::polars
+  - conda-forge::python=3.11

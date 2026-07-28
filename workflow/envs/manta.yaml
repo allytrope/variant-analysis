@@ -1,0 +1,10 @@
+# Conda environment for smoove
+
+name: manta
+channels:
+- bioconda
+
+dependencies:
+- bioconda::csvtk
+- bioconda::manta
+- bioconda::octopus

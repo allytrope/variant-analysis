@@ -44,6 +44,30 @@ rule trim_fastp:
 #         > {output} \
 #         """
 
+rule align_pbmm2:
+    """Align PacBio long-read sequencing."""
+    input:
+        ref = config["ref_fasta"],
+        mmi = config["ref_fasta"] + ".mmi",
+        reads = config["resources"] + "reads/{batch}/{seq}{indiv}_{library}.bam",
+        pbi = config["resources"] + "reads/{batch}/{seq}{indiv}_{library}.bam.pbi",  # Not sure if this is required
+    output:
+        alignment = config["results"] + "alignments/pbmm2/{batch}/{seq}{indiv}_{library}.bam",
+    conda: "../envs/align.yaml"
+    threads: 16
+    resources:
+        nodes = 16,
+        # One sample worked at 40_000
+        mem_mb = 100_000,
+        tmpdir = "/master/abagwell/tmp",
+    shell: """
+        pbmm2 align {input.mmi} {input.reads} {output.alignment} \
+            --preset CCS \
+            --sample LRS{wildcards.indiv}_{wildcards.library} \
+            --sort \
+            -j {threads} \
+        """
+
 rule align:
     """Align .fastq sequence to reference genome.
 

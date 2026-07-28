@@ -1,0 +1,21 @@
+# Conda environment for non-GATK tools
+
+name: common
+channels:
+- bioconda
+- conda-forge
+
+dependencies:
+- bioconda::bcftools>=1.24
+- bioconda::bedtools>=2.31
+#- conda-forge::biopython=1
+#- bioconda::bwa=0.7.17
+#- bioconda::cutadapt=4.6
+- bioconda::csvtk>=0.31
+- conda-forge::genozip
+#- conda-forge::pigz=2
+- bioconda::plink>=1.9
+- bioconda::pyfaidx #=0.8.1
+- bioconda::samtools>=1.24
+#- bioconda::whatshap=2
+- bioconda::vcftools=0.1.16

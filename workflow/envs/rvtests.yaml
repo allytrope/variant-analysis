@@ -1,0 +1,12 @@
+name: r
+channels:
+  - conda-forge
+  - bioconda
+
+dependencies:
+  - bioconda::csvtk
+  - bioconda::gcta
+  - bioconda::plink
+  - bioconda::rvtests=2.0.7
+  - bioconda::samtools
+  - bioconda::sniffles

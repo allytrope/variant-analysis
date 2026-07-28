@@ -1,0 +1,7 @@
+name: shapeit5
+channels:
+- bioconda
+- conda-forge
+
+dependencies:
+- bioconda::shapeit5=5.1.1

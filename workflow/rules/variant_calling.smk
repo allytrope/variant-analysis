@@ -231,7 +231,7 @@ rule create_intervals:
             -R {input.ref} \
             -OT ACGT \
             -O {output.interval_list}
-    """
+        """
 
 rule separate_intervals_by_contig:
     """Separate intervals into different files by contig."""
@@ -246,13 +246,13 @@ rule separate_intervals_by_contig:
         grep -P '^{wildcards.contig}' {input.interval_list} \
         | cut -f 1-3 \
         > {output.intervals_by_contig}
-    """
+        """
 
 ## Jointly call variants
 rule joint_call_cohort:
     """Use GenomicsDB to jointly call a VCF file."""
     # wildcard_constraints:
-    #     contig = r"[^XYMT]+",  # Excludes non-autosomes
+    # contig = r"[^XYMT]+",  # Excludes non-autosomes
     input:
         ref = config["ref_fasta"],
         # Note: The actual text file isn't what is required, but the datastore directory.
@@ -270,7 +270,7 @@ rule joint_call_cohort:
         # This is just a guess at how to set memory dynamically.
         # The thought is to use the size of the interval as well as
         # add a set about for the reference genome. Technically, sample size would also be a factor.
-        mem_mb = lambda wildcards: (wildcards.end - wildcards.start) * 0.00004 + 1_000,
+        mem_mb = lambda wildcards: (int(wildcards.end) - int(wildcards.start)) * 0.07 + 1_000,  #0.4 # 0.00004
     conda: "../envs/gatk.yaml"
     # -Xmx16g
     shell: """
@@ -346,7 +346,7 @@ rule biallelics_by_mode:
         tbi = config["results"] + "joint_call/polyallelic/{dataset}.chr{chr}.vcf.gz.tbi",
         ref_fasta = config["ref_fasta"],
     output:
-        split = config["results"] + "joint_call/biallelic/{dataset}.{mode}.chr{chr}.bcf",
+        split = temp(config["results"] + "joint_call/biallelic/{dataset}.{mode}.chr{chr}.bcf"),
     params:
         #-e'type{params.equality}"snp"' \
         #equality = lambda wildcards: "=" if wildcards.mode == "indel" else "!=",
