@@ -259,7 +259,7 @@ rule joint_call_cohort:
         # This .txt file is, however, is created only after the datastore has finished being built.
         db = config["results"] + "db/{dataset}/completed/{contig}.txt",
     output:
-        vcf = protected(config["results"] + "joint_call/polyallelic/{dataset}.chr{contig}:{start}-{end}.vcf.gz"),
+        vcf = temp(config["results"] + "joint_call/polyallelic/{dataset}.chr{contig}:{start}-{end}.vcf.gz"),
         #tbi = config["results"] + "joint_call/polyallelic/{dataset}.chr{chr}.vcf.gz.tbi",
     params:
         db = config["results"] + "db/{dataset}/{contig}",
@@ -270,7 +270,8 @@ rule joint_call_cohort:
         # This is just a guess at how to set memory dynamically.
         # The thought is to use the size of the interval as well as
         # add a set about for the reference genome. Technically, sample size would also be a factor.
-        mem_mb = lambda wildcards: (int(wildcards.end) - int(wildcards.start)) * 0.07 + 1_000,  #0.4 # 0.00004
+        # mem_mb = lambda wildcards: (int(wildcards.end) - int(wildcards.start)) * 0.07 + 1_000,  #0.4 # 0.00004
+        mem_mb = 220_000,
     conda: "../envs/gatk.yaml"
     # -Xmx16g
     shell: """
@@ -282,7 +283,7 @@ rule joint_call_cohort:
         """
 
 rule concat_intervals_of_chromosome:
-    """Merge called variants from intervals of a single chromosome to make VCF file."""
+    """Merge called variants from intervals of a single chromosome to make BCF file."""
     wildcard_constraints:
         indiv_id = r"[A-Za-z0-9]+",
         seq = r"WGS|WES|GBS|AMP",
@@ -304,14 +305,14 @@ rule concat_intervals_of_chromosome:
                 )["interval"].to_list()
             ),
     output:
-        vcf = protected(config["results"] + "joint_call/polyallelic/{dataset}.chr{chr}.vcf.gz"),
+        bcf = protected(config["results"] + "joint_call/polyallelic/{dataset}.chr{chr}.bcf"),
     conda: "../envs/common.yaml"
     threads: 1
     resources: nodes = 1
     shell: """
         bcftools concat {input.vcfs} \
-            -o {output.vcf} \
-            -Oz \
+            -o {output.bcf} \
+            -Ob \
         """
 
 rule joint_call_cohort_all_sites:
@@ -354,6 +355,7 @@ rule biallelics_by_mode:
             """-e'type!="snp"'""" if wildcards.mode == "SNP" else ""
             ),
     threads: 1
+    priority: 10
     resources: nodes = 1
     conda: "../envs/common.yaml"
     # 1) Separate multiallelics into different lines
