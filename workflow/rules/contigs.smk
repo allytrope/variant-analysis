@@ -50,7 +50,7 @@ rule list_autosomes:
 ## VCFs
 
 rule concat_chromosomes:
-    """Concatenate chromosomes."""
+    """Concatenate VCFs by chromosome."""
     input:
         vcfs = expand(config["results"] + "{{path}}/{{dataset}}.{{mode}}.chr{chr}.vcf.gz",
             chr=CHROMOSOMES),
@@ -67,7 +67,7 @@ rule concat_chromosomes:
         """
 
 rule bcfs_to_autosomal_bcf:
-    """Concatenate autosomes."""
+    """Concatenate BCFs by autosomes."""
     wildcard_constraints:
         ext = "bcf",
     input:
@@ -84,6 +84,7 @@ rule bcfs_to_autosomal_bcf:
             -o {output.bcf} \
             -Ob \
         """
+ruleorder: bcfs_to_autosomal_bcf > vcfgz_to_bcf
 
 # rule vcfgzs_to_autosomal_vcfgz:
 #     """Concatenate autosomes."""
@@ -124,6 +125,21 @@ rule bcfs_to_autosomal_vcfgz:
         bcftools concat {input.bcfs} \
             -o {output.vcf} \
             -Oz \
+        """
+
+rule sort_contigs_in_bcf:
+    """Sort contigs in a BCF."""
+    input:
+        bcf = config["results"] + "{path}.bcf",
+    output:
+        bcf = config["results"] + "{path}.sorted.bcf",
+    threads: 1
+    resources: nodes = 1
+    conda: "../envs/common.yaml"
+    shell: """
+        bcftools sort {input.bcf} \
+            -o {output.bcf} \
+            -Ob \
         """
 
 #ruleorder: bcfs_to_autosomal_vcfgz > vcfgzs_to_autosomal_vcfgz

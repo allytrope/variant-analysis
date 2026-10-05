@@ -1,7 +1,53 @@
 """Contain rules for hard filtering. Runs after variant_calling.smk and as an alternative to variant_recalibration.smk."""
 
+## Split SNPs and indels
+rule biallelics_by_mode:
+    """Split into SNP- or indel-only .vcf. Then keeps only biallelic sites."""
+    input:
+        vcf = config["results"] + "joint_call/polyallelic/{dataset}.chr{chr}.vcf.gz",
+        tbi = config["results"] + "joint_call/polyallelic/{dataset}.chr{chr}.vcf.gz.tbi",
+        ref_fasta = config["ref_fasta"],
+    output:
+        split = temp(config["results"] + "joint_call/biallelic/{dataset}.{mode}.chr{chr}.bcf"),
+    params:
+        #-e'type{params.equality}"snp"' \
+        #equality = lambda wildcards: "=" if wildcards.mode == "indel" else "!=",
+        equality_option = lambda wildcards: """-e'type="snp"'""" if wildcards.mode == "indel" else (
+            """-e'type!="snp"'""" if wildcards.mode == "SNP" else ""
+            ),
+    threads: 1
+    priority: 10
+    resources: nodes = 1
+    conda: "../envs/common.yaml"
+    # 1) Separate multiallelics into different lines
+    # 2) Take only SNPs or indels
+    # 3) Merge multiallelics back into same lines
+    # 4) Keep only biallelics
+    # Alternative:
+    # bcftools view {input.vcf} \
+    # -M2 \
+    # -v snps \
+    # -Oz \
+    # -o {output.split} \
+    shell: """
+        bcftools norm {input.vcf} \
+            -m-any \
+            --fasta-ref {input.ref_fasta} \
+            -Ou \
+        | bcftools view \
+            {params.equality_option} \
+            -Ou \
+        | bcftools norm \
+            -m+any \
+            -Ou \
+        | bcftools view \
+            -M2 \
+            -m2 \
+            -Ob \
+            -o {output.split} \
+        """
+
 rule pass_only_hard_filter:
-    """Remove variants by filters."""
     input:
         #vcf = config["results"] + "{filter_method}/filtered/{dataset}.{mode}.chr{chr}.vcf.gz",
         bcf = config["results"] + "joint_call/biallelic/{dataset}.{mode}.chr{chr}.bcf",

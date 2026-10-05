@@ -82,8 +82,8 @@ rule align:
         alignment = pipe(config["results"] + "alignments/raw/{batch}/{seq}{indiv}_{library}_{flowcell_lane}.bam"),
     log:
         config["results"] + "alignments/log/{batch}/{seq}{indiv}_{library}_{flowcell_lane}.log",
-    threads: 20
-    resources: nodes = 20
+    threads: 18
+    resources: nodes = 18
     conda: "../envs/align.yaml"
     # First of RG's tags must be SM and last must be PU because of how I have to call the sample names.
     shell: """
